@@ -7,7 +7,7 @@
   "extends": "",
   "extensible": 0,
   "homepatcher": "",
-  "max_version_min": "8.0",
+  "max_version_min": "9.0",
   "os": {
     "macintosh": {
       "externals": [
@@ -27,10 +27,11 @@
     }
   },
   "filelist": {
-    "externals/maxforge.sync.mxo": {},
-    "externals/maxforge.sync.mxe64": {},
-    "help/maxforge.sync.maxhelp": {},
+    "externals/maxforge.mxo": {},
+    "externals/maxforge.mxe64": {},
+    "externals/maxforge-service": {},
+    "help/maxforge.maxhelp": {},
     "help/managed_plan.json": {},
-    "docs/maxforge.sync.maxref.xml": {}
+    "docs/maxforge.maxref.xml": {}
   }
 }

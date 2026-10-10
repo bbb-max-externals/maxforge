@@ -6,9 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "maxforge": "dist/cli/index.js",
-    "maxforge-mcp": "dist/mcp/bin.js",
-    "maxforge-broker": "dist/mcp/broker-bin.js"
+    "maxforge": "dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -18,7 +16,6 @@
     "pretest:package": "npm run build",
     "dev": "tsc --watch",
     "docs:check": "python3 scripts/verify-markdown-links.py",
-    "mcp": "node dist/mcp/bin.js",
     "test": "node --experimental-vm-modules node_modules/.bin/vitest run",
     "test:coverage": "node --experimental-vm-modules node_modules/.bin/vitest run --coverage",
     "test:package": "node scripts/verify-npm-package.mjs",
@@ -59,7 +56,7 @@
     "docs/agent-guide.md",
     "docs/architecture.md",
     "docs/development.md",
-    "docs/mcp.md",
+    "docs/live.md",
     "docs/node-script.md",
     "docs/object-catalog.md",
     "docs/patch-sync.md",
@@ -76,9 +73,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./mcp": {
-      "types": "./dist/mcp/index.d.ts",
-      "import": "./dist/mcp/index.js"
+    "./live": {
+      "types": "./dist/live/index.d.ts",
+      "import": "./dist/live/index.js"
     }
   },
   "engines": {
@@ -93,7 +90,6 @@
   },
   "homepage": "https://2bit.jp/maxforge/",
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.0.0",
     "ws": "^8.21.1",
     "zod": "^4.4.3"
   }

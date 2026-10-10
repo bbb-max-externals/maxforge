@@ -50,14 +50,14 @@ describe("examples", () => {
     "max_node_script/generated_patch.maxdsl",
     "max_node_script/maxforge_node_script_demo.maxdsl",
     "max_sync/managed_patch.maxdsl",
-    "max_sync/maxforge_sync_demo.maxdsl",
-    "mcp_bridge/desired.maxdsl",
-    "mcp_bridge/maxforge_mcp_bridge.maxdsl",
+    "max_sync/maxforge_native_demo.maxdsl",
+    "live/desired.maxdsl",
+    "live/maxforge_live.maxdsl",
     "voice_bank.maxdsl",
   ];
 
   it("keeps the public example manifest exhaustive", () => {
-    expect(findFiles(examplesDir, ".maxdsl")).toEqual(examples);
+    expect(findFiles(examplesDir, ".maxdsl")).toEqual([...examples].sort());
   });
 
   for (const name of examples) {
@@ -1123,26 +1123,26 @@ describe("attributes", () => {
   });
 
   it("preserves escaped @ arguments in object text and round-trips them", () => {
-    const source = String.raw`sync = maxforge.sync \@host 127.0.0.1 \@port 8766 @presentation 1`;
+    const source = String.raw`sync = maxforge \@scope voices \@patcher_id main @presentation 1`;
     const { ast, errors } = parse(source);
     expect(errors).toHaveLength(0);
 
     const stmt = ast.statements[0] as any;
     expect(stmt.objectText).toBe(
-      "maxforge.sync @host 127.0.0.1 @port 8766"
+      "maxforge @scope voices @patcher_id main"
     );
     expect(stmt.attrs).toEqual({ presentation: [1] });
 
     const result = compile(ast, db);
     expect(result.success).toBe(true);
     const box = result.output!.patcher.boxes[0].box as any;
-    expect(box.text).toBe("maxforge.sync @host 127.0.0.1 @port 8766");
-    expect(box.host).toBeUndefined();
+    expect(box.text).toBe("maxforge @scope voices @patcher_id main");
+    expect(box.scope).toBeUndefined();
     expect(box.presentation).toBe(1);
 
     const decompiled = decompile(result.output!);
     expect(decompiled).toContain(
-      String.raw`maxforge.sync \@host 127.0.0.1 \@port 8766 @presentation 1`
+      String.raw`maxforge \@scope voices \@patcher_id main @presentation 1`
     );
 
     const reparsed = parse(decompiled);
@@ -1150,7 +1150,7 @@ describe("attributes", () => {
     const recompiled = compile(reparsed.ast, db);
     expect(recompiled.success).toBe(true);
     expect(recompiled.output!.patcher.boxes[0].box).toMatchObject({
-      text: "maxforge.sync @host 127.0.0.1 @port 8766",
+      text: "maxforge @scope voices @patcher_id main",
       presentation: 1,
     });
   });

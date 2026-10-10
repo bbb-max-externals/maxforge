@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-PROJECT_OBJECTS = {"maxforge.sync"}
+PROJECT_OBJECTS = {"maxforge"}
 IGNORED_PATCHER_NAMESPACES = {"dsp.gen", "jit.gen", "rnbo"}
 IGNORED_PATCHER_PARENT_OBJECTS = {
     "gen",

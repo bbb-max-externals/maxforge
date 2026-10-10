@@ -1,4 +1,4 @@
-patch "maxforge.sync managed content" | "Repeated controls inserted into the demo patcher" | 940x560
+patch "maxforge managed content" | "Repeated controls inserted into the demo patcher" | 940x560
 
 for row in 0..1 {
   for column in 0..5 {

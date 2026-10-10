@@ -10,7 +10,7 @@ The catalog contains 319 entries:
 
 - 318 Max object names or aliases with identity evidence in the resources
   bundled with the locally audited Max 9 application;
-- the project-owned `maxforge.sync` external, verified from this repository's
+- the project-owned `maxforge` external, verified from this repository's
   C++ source and Max reference file;
 - 237 entries with a fixed base shape, 45 entries with an explicit
   argument-dependent rule, and 37 entries marked `dynamicPorts`.
@@ -64,7 +64,7 @@ contain a `catalogs` property, and are loaded before declarations in the root
 configuration. The format is strict: unknown keys fail validation instead of
 being silently ignored.
 
-`project.id` is the stable namespace used by MCP persistence. It must start
+`project.id` is the stable namespace used by live-service persistence. It must start
 with a letter or underscore and contain only letters, digits, `_`, or `-`;
 `project.name` is display-only. Shared imported catalogs cannot declare a
 project identity. Reusing one ID for unrelated projects merges their state and
@@ -79,9 +79,8 @@ before compilation. Use `maxforge catalog [query] --json` to search the
 effective catalog; an unfiltered call lists project declarations, while a query
 also searches built-ins. `--all` requests a complete built-in listing.
 
-The MCP broker deliberately has no working-directory discovery because an MCP
-client's process directory is often unrelated to the patch project. Set
-`MAXFORGE_CONFIG` explicitly, preferably to an absolute path. `maxforge_status`
+The live service does not use working-directory discovery. Set `@config` to an
+absolute config path on the first `maxforge` object. `maxforge_status`
 reports the effective digest and source files; `maxforge_catalog` exposes the
 loaded metadata to agents. After editing configured files, call
 `maxforge_reload_catalog` and verify the replacement digest; a failed reload
@@ -217,7 +216,7 @@ side effects. Therefore catalog membership does not prove that:
 - the declared ports still match the installed version.
 
 Install and test dependencies in the target Max environment. This boundary is
-especially important when `maxforge-mcp` and Max run on different LAN machines.
+important because metadata does not establish Max search-path availability.
 
 ## Evidence used
 

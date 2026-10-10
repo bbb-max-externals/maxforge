@@ -210,20 +210,20 @@ maxforge plan next.maxdsl --scope voices --current current.maxdsl -o plan.json
 - `baseRevision`が現在のrevisionと一致しないplanは適用しない。
 - managed scope外のオブジェクトを削除・変更しない。
 - DSLはdesired stateとして扱い、`delete`などの命令型構文を追加しない。
-- Max内では`maxforge.sync @scope voices`へ`apply <compact-json>`を送るか、
+- Max内では`maxforge @scope voices`へ`apply <compact-json>`を送るか、
   named `dict`を`applydict <name>`で適用する。
-- `maxforge.sync`はJavaScriptや`thispatcher`を経由せずMax SDKでpatcherを変更する。
+- `maxforge`はJavaScriptや`thispatcher`を経由せずMax SDKでpatcherを変更する。
 - protocol v1はruntime failure時にreverse operationsを試行するが、transactionalなrollbackは保証しない。
 - 詳細は`docs/patch-sync.md`を参照。
 
-### MCP経由のlive managed patch
+### HTTP経由のlive managed patch
 
-MCPクライアントからMaxを変更する場合は、次の順序を崩さない。
+HTTPクライアントからMaxを変更する場合は、次の順序を崩さない。
 
 1. 初回操作では`maxforge_help`へ`topic: "workflow"`を渡し、serverが返す
    最新の操作規約を読む。失敗後は`topic: "recovery"`を読む。
 2. custom externalまたはabstractionを使う場合は`maxforge_catalog`で、
-   MCP brokerが実際に読み込んだ定義を確認する。設定ファイルを変更した
+   HTTP serviceが実際に読み込んだ定義を確認する。設定ファイルを変更した
    場合は`maxforge_reload_catalog`を呼び、新digestを確認する。reload失敗時は
    旧catalogがそのまま有効であり、部分更新とは扱わない。
 3. `maxforge_list_patches`で登録済み`patcherId`とscopeを確認する。
@@ -275,7 +275,7 @@ MCPクライアントからMaxを変更する場合は、次の順序を崩さ�
     dirty patchのcloseは、保存するか`maxforge_close_patch`へ明示的に
     `discard: true`を渡すまで拒否される。
 
-stdio frontendだけの再起動では共有broker stateは失われない。brokerをstate persistence
+Maxプロセス内のserviceは全objectで共有される。state persistence
 無しで再起動し、Max側scopeが初期化済みなら、以前の完全なDSLを`currentDsl`として
 一度渡す。revision hashだけから現在graphを推測してはいけない。
 
@@ -298,8 +298,8 @@ apply側は再inspectした構造tokenをplanへ埋め込み、native external�
 timeout、transport error、`baselineCaptured: false`を理由に
 同じapplyを即時再送してはいけない。statusとlive inspectを先に行う。
 
-Max側は`examples/mcp_bridge/`の通り、接続設定を持つnative
-`maxforge.sync`を1個だけ置く。接続、再接続、登録、request/eventの
+Max側は`examples/live/`の通り、接続設定を持つnative
+`maxforge`を1個だけ置く。接続、再接続、登録、request/eventの
 送受信はexternal内部で完結し、bootstrap用のpatch cordは不要。
 複数パッチをタイトルで推測せず、必ず`patcherId`で指定する。Max内で
 JavaScriptを追加したり、agentに生の`thispatcher`コマンドを生成させたり
@@ -309,13 +309,13 @@ live操作を継続的にagentへ任せる場合は、汎用DSL skillとは別�
 専用skillを導入する。
 
 ```bash
-npx skills add bbb-max-externals/maxforge --skill maxforge-mcp
+npx skills add bbb-max-externals/maxforge --skill maxforge-live
 ```
 
-skillはagentへのinstructionsであり、`maxforge-mcp` serverやnative externalを
+skillはagentへのinstructionsであり、native externalを
 インストールするものではない。
 
-詳細は`docs/mcp.md`を参照。
+詳細は`docs/live.md`を参照。
 
 ### Full Example: MIDI Synth
 
@@ -420,27 +420,23 @@ abstractionを`--allow-unknown`で誤魔化さない。project rootの
 
 CLIの`compile`、`validate`、`plan`、`bundle`は入力DSLから上方向へ設定を探索する。
 明示指定は`--config`、事前検査は`maxforge doctor --input input.maxdsl`を使う。
-MCPはcwd探索を行わないため、server起動設定で`MAXFORGE_CONFIG`に絶対pathを
-渡す。catalog変更後は`maxforge_reload_catalog`を呼び、`maxforge_catalog`で
+live serviceはcwd探索しない。最初の`maxforge`の`@config`に絶対pathを渡す。catalog変更後は`maxforge_reload_catalog`を呼び、`maxforge_catalog`で
 新しいdigestを確認する。server再起動は不要で、reload失敗時は旧catalogが残る。
-MCPのstate/edit historyを再起動後もproject単位で保持する場合は、一意で安定した
+HTTPのstate/edit historyを再起動後もproject単位で保持する場合は、一意で安定した
 `project.id`をroot configへ設定する。保存pathはlocatorでありpatch identityではない。
 pathの衝突warningは自動解決しない。`maxforge_get_patch_history_identity`でcanonical
 identity、aliases、過去のdecisionを確認し、人間が同一性を確認した場合だけsourceを
 閉じて`maxforge_resolve_patch_history_identity`を使う。`rekey`は未使用IDへの変更、
 `merge`は既知IDへの統合、`forget`はAgent-facing lookupからの論理除外である。
-いずれもlive `maxforge.sync`のroutingや元のNDJSONを書き換えず、`forget`も物理削除ではない。
+いずれもlive `maxforge`のroutingや元のNDJSONを書き換えず、`forget`も物理削除ではない。
 人間が履歴そのものの削除を明示した場合だけ、全Max clientを閉じ、
 `maxforge_status.bridge.connectedClients == 0`を確認してから
 `maxforge_erase_project_history`へ正確なproject IDと
 `ERASE PROJECT HISTORY <project.id>`を渡す。この操作はhistory chunkとidentity ledger、
 bridge上のretained observationを削除するが、Max patch、DSL/config、desired-state cacheは
 削除せず、SSD等のsecure overwriteも保証しない。
-永続historyはhistory directoryごとにsingle writerである。sessionごとの
-`maxforge-mcp`はproject brokerへ接続し、brokerだけが`writer-v1.lock`を所有する。
-broker異常終了後は、記録されたprocessが死んでいる有効なleaseだけをreplacementが
-atomicに回収する。live processまたは検証不能なleaseは置換しない。lockを消して
-並行writerを起動してはいけない。history persistenceを無効化した場合、このguardも無い。
+永続historyはhistory directoryごとにsingle writerであり、Max-owned serviceが所有する。
+lockを消して並行writerを起動しない。
 
 agentは`maxforge_catalog`の結果とdigestを確認してからcustom objectを使う。
 ただしcatalog entryはcompiler metadataでしかない。Max側machineへのexternal
@@ -551,5 +547,5 @@ node dist/cli/index.js compile input.maxdsl -o object_name.maxhelp
 - [ ] ポート番号がオブジェクトのinlet/outlet数の範囲内
 - [ ] サブパッチャーに inlet/outlet が存在
 - [ ] 重複する名前がない
-- [ ] custom object使用時は`doctor`が成功し、MCPなら`maxforge_catalog`と一致
+- [ ] custom object使用時は`doctor`が成功し、HTTPなら`maxforge_catalog`と一致
 - [ ] catalog entryをMax runtime availabilityの証明として扱っていない

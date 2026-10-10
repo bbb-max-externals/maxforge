@@ -15,24 +15,33 @@ import zipfile
 from pathlib import Path
 
 
+SERVICE_ROOTS = (
+    "externals/maxforge.mxo/Contents/Resources/service",
+    "externals/maxforge-service",
+)
+SERVICE_FILES = (
+    "package.json", "dist/live/bin.js", "dist/live/http-server.js",
+    "data/objects.json", "node_modules/ws/package.json", "node_modules/zod/package.json",
+)
 PACKAGE_FILES = (
     "package-info.json",
     "README.md",
     "LICENSE",
-    "externals/maxforge.sync.mxo/Contents/Info.plist",
-    "externals/maxforge.sync.mxo/Contents/MacOS/maxforge.sync",
-    "externals/maxforge.sync.mxe64",
-    "help/maxforge.sync.maxhelp",
+    "externals/maxforge.mxo/Contents/Info.plist",
+    "externals/maxforge.mxo/Contents/MacOS/maxforge",
+    "externals/maxforge.mxe64",
+    "help/maxforge.maxhelp",
     "help/managed_plan.json",
-    "docs/maxforge.sync.maxref.xml",
-)
+    "docs/maxforge.maxref.xml",
+) + tuple(f"{root}/{file}" for root in SERVICE_ROOTS for file in SERVICE_FILES)
 
 FILELIST_FILES = (
-    "externals/maxforge.sync.mxo",
-    "externals/maxforge.sync.mxe64",
-    "help/maxforge.sync.maxhelp",
+    "externals/maxforge.mxo",
+    "externals/maxforge.mxe64",
+    "externals/maxforge-service",
+    "help/maxforge.maxhelp",
     "help/managed_plan.json",
-    "docs/maxforge.sync.maxref.xml",
+    "docs/maxforge.maxref.xml",
 )
 
 SEMVER_PATTERN = re.compile(
@@ -136,7 +145,7 @@ def validate_metadata(
 
 
 def validate_max_documents(root: Path) -> None:
-    maxhelp_path = root / "help/maxforge.sync.maxhelp"
+    maxhelp_path = root / "help/maxforge.maxhelp"
     maxhelp = read_json(maxhelp_path)
     if not isinstance(maxhelp, dict) or not isinstance(maxhelp.get("patcher"), dict):
         fail(f"{maxhelp_path} must contain a Max patcher object")
@@ -150,10 +159,10 @@ def validate_max_documents(root: Path) -> None:
         and isinstance(wrapper.get("box"), dict)
         and wrapper["box"].get("maxclass") == "newobj"
         and isinstance(wrapper["box"].get("text"), str)
-        and wrapper["box"]["text"].split(maxsplit=1)[0] == "maxforge.sync"
+        and wrapper["box"]["text"].split(maxsplit=1)[0] == "maxforge"
         for wrapper in help_patcher["boxes"]
     ):
-        fail(f"{maxhelp_path} does not instantiate maxforge.sync")
+        fail(f"{maxhelp_path} does not instantiate maxforge")
 
     plan_path = root / "help/managed_plan.json"
     plan = read_json(plan_path)
@@ -162,13 +171,13 @@ def validate_max_documents(root: Path) -> None:
     if plan.get("protocolVersion") != 1 or not isinstance(plan.get("operations"), list):
         fail(f"{plan_path} must contain protocolVersion 1 and an operations array")
 
-    maxref_path = root / "docs/maxforge.sync.maxref.xml"
+    maxref_path = root / "docs/maxforge.maxref.xml"
     try:
         maxref = ET.parse(maxref_path).getroot()
     except (OSError, ET.ParseError) as error:
         fail(f"invalid Max reference XML at {maxref_path}: {error}")
-    if maxref.tag != "c74object" or maxref.attrib.get("name") != "maxforge.sync":
-        fail(f"{maxref_path} must describe maxforge.sync")
+    if maxref.tag != "c74object" or maxref.attrib.get("name") != "maxforge":
+        fail(f"{maxref_path} must describe maxforge")
     if maxref.find("digest") is None or maxref.find("methodlist") is None:
         fail(f"{maxref_path} must contain a digest and methodlist")
 
@@ -179,9 +188,9 @@ def validate_source(root: Path) -> None:
         "package-info.json",
         "README.md",
         "LICENSE",
-        "help/maxforge.sync.maxhelp",
+        "help/maxforge.maxhelp",
         "help/managed_plan.json",
-        "docs/maxforge.sync.maxref.xml",
+        "docs/maxforge.maxref.xml",
     ):
         require_file(root / relative)
     validate_metadata(root, root)
@@ -194,30 +203,45 @@ def validate_package(root: Path) -> None:
     validate_metadata(root, require_targets=True)
     validate_max_documents(root)
 
-    executable = root / "externals/maxforge.sync.mxo/Contents/MacOS/maxforge.sync"
+    executable = root / "externals/maxforge.mxo/Contents/MacOS/maxforge"
     if executable.stat().st_mode & stat.S_IXUSR == 0:
         fail(f"macOS external binary is not executable: {executable}")
     if executable.read_bytes()[:4] not in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
         fail(f"macOS external is not a universal Mach-O binary: {executable}")
 
-    windows_external = root / "externals/maxforge.sync.mxe64"
+    windows_external = root / "externals/maxforge.mxe64"
     if windows_external.read_bytes()[:2] != b"MZ":
         fail(f"Windows external is not a PE binary: {windows_external}")
 
-    plist_path = root / "externals/maxforge.sync.mxo/Contents/Info.plist"
+    plist_path = root / "externals/maxforge.mxo/Contents/Info.plist"
     try:
         with plist_path.open("rb") as stream:
             plist = plistlib.load(stream)
     except (OSError, plistlib.InvalidFileException) as error:
         fail(f"invalid macOS Info.plist at {plist_path}: {error}")
-    if plist.get("CFBundleIdentifier") != "jp.2bit.maxforge.sync":
-        fail(f"invalid maxforge.sync bundle identifier in {plist_path}")
+    if plist.get("CFBundleIdentifier") != "jp.2bit.maxforge":
+        fail(f"invalid maxforge bundle identifier in {plist_path}")
 
     package_info = read_json(root / "package-info.json")
     if not isinstance(package_info, dict):
         fail("package-info.json must contain an object")
     if plist.get("CFBundleShortVersionString") != package_info.get("version"):
         fail("macOS bundle version does not match package-info.json")
+    for service in SERVICE_ROOTS:
+        manifest = read_json(root / service / "package.json")
+        if manifest.get("version") != package_info.get("version"):
+            fail(f"service version does not match package-info.json: {service}")
+    for file in root.rglob("*"):
+        validate_no_runtime_or_legacy(file.relative_to(root).as_posix())
+
+
+def validate_no_runtime_or_legacy(path: str) -> None:
+    parts = PurePosixPath(path).parts
+    name = parts[-1]
+    if name in ("node", "node.exe", "node-arm64", "node-x64"):
+        fail(f"Node runtime must be provided by Max, not bundled: {path}")
+    if "mcp" in parts or name.startswith("maxforge.sync") or name.startswith("broker"):
+        fail(f"legacy connection artifact must not be shipped: {path}")
 
 
 def validate_archive(path: Path) -> None:
@@ -238,6 +262,7 @@ def validate_archive(path: Path) -> None:
         fail(f"archive contains duplicate entries: {', '.join(sorted(duplicates))}")
     for name in names:
         normalized = validate_relative_path(name.rstrip("/"), "archive path")
+        validate_no_runtime_or_legacy(normalized)
         if normalized != "maxforge" and not normalized.startswith("maxforge/"):
             fail(f"archive entry is outside maxforge/: {name}")
     name_set = set(names)

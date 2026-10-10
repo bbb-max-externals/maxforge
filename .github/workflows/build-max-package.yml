@@ -88,6 +88,14 @@ jobs:
           git -C deps/min-api submodule update --init --recursive
           git -C deps/bbb.agent submodule update --init deps/IXWebSocket
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build bundled service
+        run: npm ci && npm run build
+
       - name: Configure
         run: >-
           cmake -S . -B build
@@ -97,6 +105,9 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 2
 
+      - name: Bundle service (use Max-provided Node)
+        run: node scripts/stage-service.mjs
+
       - name: Test native protocol
         run: ctest --test-dir build --build-config Release --output-on-failure
 
@@ -104,12 +115,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bundle="externals/maxforge.sync.mxo"
-          binary="$bundle/Contents/MacOS/maxforge.sync"
+          bundle="externals/maxforge.mxo"
+          binary="$bundle/Contents/MacOS/maxforge"
           test -d "$bundle"
           test -x "$binary"
           lipo "$binary" -verify_arch x86_64 arm64
-          test "$(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist")" = "jp.2bit.maxforge.sync"
+          test "$(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist")" = "jp.2bit.maxforge"
           version="$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
           test "$(plutil -extract CFBundleShortVersionString raw "$bundle/Contents/Info.plist")" = "$version"
           codesign --verify --deep --strict --verbose=2 "$bundle"
@@ -160,6 +171,14 @@ jobs:
           git -C deps/min-api submodule update --init --recursive
           git -C deps/bbb.agent submodule update --init deps/IXWebSocket
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build bundled service
+        run: npm ci && npm run build
+
       - name: Configure
         run: >-
           cmake -S . -B build
@@ -170,13 +189,16 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 2
 
+      - name: Bundle service (use Max-provided Node)
+        run: node scripts/stage-service.mjs
+
       - name: Test native protocol
         run: ctest --test-dir build --build-config Release --output-on-failure
 
       - name: Verify Windows external
         shell: pwsh
         run: |
-          $external = "externals/maxforge.sync.mxe64"
+          $external = "externals/maxforge.mxe64"
           if (-not (Test-Path -PathType Leaf $external)) {
             throw "Missing Windows external: $external"
           }
@@ -270,7 +292,7 @@ jobs:
           Commit: ${GITHUB_SHA}
           Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
 
-          The archive contains the universal macOS maxforge.sync.mxo and x64 Windows maxforge.sync.mxe64, plus Max help, reference, documentation, and examples. The macOS external is Developer ID signed, and this exact ZIP was accepted by Apple's notarization service.
+          The archive contains the universal macOS maxforge.mxo and x64 Windows maxforge.mxe64, plus Max help, reference, documentation, and examples. The macOS external is Developer ID signed, and this exact ZIP was accepted by Apple's notarization service.
           EOF
 
           git config user.name "github-actions[bot]"

@@ -17,8 +17,8 @@ const generatedPairs = [
   ["examples/basic_synth.maxdsl", "examples/basic_synth.maxpat"],
   ["examples/max_node_script/generated_patch.maxdsl", "examples/max_node_script/generated_patch.maxpat"],
   ["examples/max_node_script/maxforge_node_script_demo.maxdsl", "examples/max_node_script/maxforge_node_script_demo.maxpat"],
-  ["examples/max_sync/maxforge_sync_demo.maxdsl", "examples/max_sync/maxforge_sync_demo.maxpat"],
-  ["examples/mcp_bridge/maxforge_mcp_bridge.maxdsl", "examples/mcp_bridge/maxforge_mcp_bridge.maxpat"],
+  ["examples/max_sync/maxforge_native_demo.maxdsl", "examples/max_sync/maxforge_native_demo.maxpat"],
+  ["examples/live/maxforge_live.maxdsl", "examples/live/maxforge_live.maxpat"],
 ] as const;
 
 describe("checked-in generated Max artifacts", () => {
@@ -59,13 +59,13 @@ describe("checked-in generated Max artifacts", () => {
     expect(shipped).toEqual(JSON.parse(JSON.stringify(expected)));
   });
 
-  it("ships the current sync example as the Max help patch", () => {
+  it("ships the single-object service example as the Max help patch", () => {
     const example = readFileSync(
-      new URL("../examples/max_sync/maxforge_sync_demo.maxpat", import.meta.url),
+      new URL("../examples/live/maxforge_live.maxpat", import.meta.url),
       "utf8"
     );
     const help = readFileSync(
-      new URL("../help/maxforge.sync.maxhelp", import.meta.url),
+      new URL("../help/maxforge.maxhelp", import.meta.url),
       "utf8"
     );
     expect(help).toBe(example);

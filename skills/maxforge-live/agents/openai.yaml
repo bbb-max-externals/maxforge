@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maxforge Live"
+  short_description: "Set up maxforge and safely edit live Max patches"
+  default_prompt: "Use $maxforge-live to set up Max integration, migrate any old maxforge-mcp skill, and verify the connection before editing patches."

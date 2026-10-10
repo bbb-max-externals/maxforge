@@ -1,7 +1,7 @@
 # Development guide
 
-This document covers local repository work. End-user CLI and MCP setup live in
-[CLI guide](cli.md) and [MCP control](mcp.md).
+This document covers local repository work. End-user CLI and live HTTP setup live in
+[CLI guide](cli.md) and [Live control](live.md).
 
 ## Prerequisites
 
@@ -30,17 +30,15 @@ npm run pack:dry-run
 The coverage command enforces the thresholds configured in
 `vitest.config.ts`, but its percentage is only for TypeScript loaded in the
 Vitest process. `src/cli/**` is explicitly excluded, and V8 does not merge code
-executed by spawned CLI, MCP, or broker processes. Python scripts, package
+executed by spawned CLI or helper processes. Python scripts, package
 assembly, and C++ are outside this metric. Do not describe the reported number
 as whole-product coverage.
 
 CLI and executable-entrypoint tests instead assert subprocess behavior.
 `test:package` first rebuilds, packs the repository, installs the tarball into a
 clean temporary project, checks every declared npm bin, executes the installed
-`maxforge` and `maxforge-broker` bins, initializes the installed
-`maxforge-mcp` bin, and imports `maxforge/mcp`. It catches omitted bin targets,
-npm bin-link, export-map, and runtime-dependency failures that a source-tree
-test cannot; it is not an allowlist audit of every tarball file.
+`maxforge` bin and imports `maxforge/live`. It catches bin-link, export-map
+and runtime-dependency failures. HTTP and helper lifecycle are tested separately.
 
 ## Native build and unit test
 
@@ -52,8 +50,12 @@ ctest --test-dir build --build-config Release --output-on-failure
 python3 scripts/verify-max-package.py --source .
 ```
 
-The local macOS build writes `externals/maxforge.sync.mxo`. GitHub Actions
+The local macOS build writes `externals/maxforge.mxo`. GitHub Actions
 builds and tests the macOS and Windows artifacts used for releases.
+
+Run `node scripts/stage-service.mjs` after building to bundle service code and
+production dependencies. It does not copy Node: the external uses Max’s own
+Node executable. End users only install the assembled Max package.
 
 ## Website validation
 
@@ -78,12 +80,12 @@ See [Project website](website.md) for deployment details.
 | `src/dsl/` | Parser, brace blocks, macro expansion, numeric expressions |
 | `src/core/` | Compilation, decompilation, layout, catalogs, serialization |
 | `src/max/` | Patch graph, plans, snapshots, merge, `thispatcher` commands |
-| `src/mcp/` | Stdio frontend, project broker, tools, service, persistence, WebSocket bridge |
-| `source/projects/maxforge.sync/` | Native min-api external |
+| `src/live/` | HTTP actions, Max-owned service, persistence, WebSocket bridge |
+| `source/projects/maxforge/` | Native min-api external |
 | `tests/` | TypeScript, subprocess, package, and native protocol tests |
 | `data/objects.json` | Built-in object metadata used by the compiler |
 | `schema/` | Project and reusable catalog JSON Schemas |
-| `examples/` | Offline, `node.script`, native sync, and MCP examples |
+| `examples/` | Offline, `node.script`, native sync, and HTTP examples |
 | `skills/` | Offline and live-control agent instructions |
 | `site/` | Static GitHub Pages source |
 | `scripts/` | Package assembly and validation scripts |

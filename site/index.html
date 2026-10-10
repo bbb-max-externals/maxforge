@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0d10">
-  <meta name="description" content="maxforge is an unofficial text-first DSL, CLI, MCP server, and native sync external for generating and managing Max patches.">
+  <meta name="description" content="maxforge is an unofficial text-first DSL, CLI, HTTP server, and native sync external for generating and managing Max patches.">
   <meta property="og:title" content="maxforge — text-first patch generation for Max">
-  <meta property="og:description" content="Generate repetitive Max patches with for, if, and arithmetic. Compile to .maxpat or control a managed patch through MCP.">
+  <meta property="og:description" content="Generate repetitive Max patches with for, if, and arithmetic. Compile to .maxpat or control a managed patch through HTTP.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://2bit.jp/maxforge/">
   <link rel="canonical" href="https://2bit.jp/maxforge/">
@@ -25,7 +25,7 @@
     <nav aria-label="Primary navigation">
       <a href="docs/">Docs</a>
       <a href="#dsl">DSL</a>
-      <a href="#live">MCP</a>
+      <a href="#live">HTTP</a>
       <a href="#install">Install</a>
       <a href="https://github.com/bbb-max-externals/maxforge">GitHub</a>
     </nav>
@@ -79,7 +79,7 @@
       <span>AUTO LAYOUT</span>
       <span>SUBPATCHERS</span>
       <span>MAX ↔ DSL</span>
-      <span>MCP LIVE SYNC</span>
+      <span>HTTP LIVE SYNC</span>
     </section>
 
     <section class="section" id="quickstart">
@@ -142,60 +142,43 @@
         <p class="eyebrow">02 / LIVE CONTROL</p>
         <h2>Let an agent read and replace<br>a managed patch scope.</h2>
         <p>
-          A shared project broker compiles desired DSL and sends ordered plans to one native
-          <code>maxforge.sync</code> object in each patch. The external inspects and
+          A Max-owned service compiles desired DSL and sends ordered plans to one native
+          <code>maxforge</code> object in each patch. The external inspects and
           mutates through the Max SDK—including text, comments, and bounded changed
           box/cord attributes—without a JavaScript bridge or screenshot.
-          Project-scoped edit evidence can survive broker restarts without treating
+          Project-scoped edit evidence can survive Max restarts without treating
           filenames or window titles as patch identity.
         </p>
       </div>
 
-      <div class="architecture" aria-label="MCP architecture">
+      <div class="architecture" aria-label="HTTP architecture">
         <div class="architecture-node">
           <span>01</span>
           <strong>AI agent</strong>
-          <small>MCP client</small>
+          <small>HTTP client</small>
         </div>
-        <div class="architecture-link"><span>stdio</span></div>
+        <div class="architecture-link"><span>local authenticated HTTP</span></div>
         <div class="architecture-node architecture-node-hot">
           <span>02</span>
-          <strong>maxforge-mcp</strong>
-          <small>stdio frontend</small>
+          <strong>Max-owned service</strong>
+          <small>shared planner + state owner · Max's Node</small>
         </div>
-        <div class="architecture-link"><span>local broker protocol</span></div>
+        <div class="architecture-link"><span>local authenticated WS</span></div>
         <div class="architecture-node">
           <span>03</span>
-          <strong>project broker</strong>
-          <small>shared planner + state owner</small>
-        </div>
-        <div class="architecture-link"><span>local / token LAN WS</span></div>
-        <div class="architecture-node">
-          <span>04</span>
-          <strong>maxforge.sync</strong>
+          <strong>maxforge</strong>
           <small>native Max external</small>
         </div>
       </div>
 
       <div class="config-grid">
         <div>
-          <h3>MCP configuration</h3>
-          <p>Run the published server directly with npx. Node.js 20 or newer is required.</p>
+          <h3>One object, no server setup</h3>
+          <p>Install the Max package and create maxforge. Max's own Node runs the shared service; no separate runtime is shipped.</p>
         </div>
         <div class="code-window">
-          <div class="panel-bar"><span>mcp.json</span><span class="panel-state">JSON</span></div>
-          <pre><code>{
-  "mcpServers": {
-    "maxforge": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "--package=maxforge@latest",
-        "maxforge-mcp"
-      ]
-    }
-  }
-}</code></pre>
+          <div class="panel-bar"><span>Max object</span><span class="panel-state">AUTO START</span></div>
+          <pre><code>maxforge</code></pre>
         </div>
       </div>
 
@@ -212,9 +195,9 @@
       </div>
       <div class="install-grid">
         <article class="install-card">
-          <div class="install-tag">CLI + LIBRARY + MCP</div>
+          <div class="install-tag">CLI + LIBRARY</div>
           <h3>npm package</h3>
-          <p>Use for DSL compilation, decompilation, planning, and the MCP server.</p>
+          <p>Use for offline compilation and the optional live HTTP client. Live service installation belongs to the Max package.</p>
           <div class="inline-command">
             <code>npm install maxforge</code>
             <button class="copy-button" type="button" data-copy="npm install maxforge">Copy</button>
@@ -225,7 +208,7 @@
         <article class="install-card install-card-primary">
           <div class="install-tag">MACOS UNIVERSAL + WINDOWS X64</div>
           <h3>Max package</h3>
-          <p>Use for native <code>maxforge.sync</code> live inspection and mutation. Includes help, reference, docs, and examples.</p>
+          <p>Use for native <code>maxforge</code> live inspection and mutation. Includes help, reference, docs, and examples.</p>
           <a class="button button-primary" href="https://github.com/bbb-max-externals/maxforge/releases/download/latest/maxforge.zip">Download maxforge.zip</a>
           <small>macOS builds are ad-hoc signed and not notarized.</small>
         </article>

@@ -2,7 +2,7 @@
 
 maxforge can turn DSL into arrays representing Max `thispatcher` scripting
 messages. This is a library integration for projects already using
-`node.script`; it is separate from the native `maxforge.sync` and MCP path.
+`node.script`; it is separate from the native `maxforge` and HTTP path.
 
 ## Flat patch example
 
@@ -60,7 +60,7 @@ controls, and expected result.
 
 ## When to use the native path instead
 
-Use `maxforge.sync` with `maxforge-mcp` when an agent must inspect a live patch,
+Use `maxforge` with `maxforge-live` when an agent must inspect a live patch,
 maintain revisions, reconcile human edits, or operate several registered Max
 windows. That path mutates through the Max SDK and does not require
-`node.script`, JavaScript, or `thispatcher` wiring. See [MCP control](mcp.md).
+`node.script`, JavaScript, or `thispatcher` wiring. See [HTTP control](live.md).

@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0d10">
-  <meta name="description" content="Documentation for the maxforge DSL, CLI, MCP server, native Max external, and agent skills.">
+  <meta name="description" content="Documentation for the maxforge DSL, CLI, HTTP server, native Max external, and agent skills.">
   <meta property="og:title" content="maxforge documentation">
-  <meta property="og:description" content="Install maxforge, generate Max patches with DSL, and safely control managed patches through MCP.">
+  <meta property="og:description" content="Install maxforge, generate Max patches with DSL, and safely control managed patches through HTTP.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://2bit.jp/maxforge/docs/">
   <link rel="canonical" href="https://2bit.jp/maxforge/docs/">
@@ -27,7 +27,7 @@
     <nav aria-label="Primary navigation">
       <a href="./" aria-current="page">Docs</a>
       <a href="../#dsl">DSL</a>
-      <a href="../#live">MCP</a>
+      <a href="../#live">HTTP</a>
       <a href="https://github.com/bbb-max-externals/maxforge">GitHub</a>
     </nav>
   </header>
@@ -42,8 +42,8 @@
       <a href="#dsl">DSL syntax</a>
       <a href="#catalog">Object catalog</a>
       <a href="#generation">for / if / arithmetic</a>
-      <a href="#mcp">MCP setup</a>
-      <a href="#mcp-workflow">Safe MCP workflow</a>
+      <a href="#live">HTTP setup</a>
+      <a href="#live-workflow">Safe HTTP workflow</a>
       <a href="#external">Native external</a>
       <a href="#recovery">Recovery</a>
       <a href="#skills">Agent skills</a>
@@ -70,9 +70,9 @@
       </div>
       <div class="docs-sidebar-group">
         <span>Live control</span>
-        <a href="#mcp">MCP setup</a>
-        <a href="#mcp-workflow">Safe workflow</a>
-        <a href="#mcp-tools">Tool reference</a>
+        <a href="#live">HTTP setup</a>
+        <a href="#live-workflow">Safe workflow</a>
+        <a href="#live-tools">Tool reference</a>
         <a href="#external">Native external</a>
         <a href="#recovery">Recovery</a>
       </div>
@@ -90,7 +90,7 @@
         <h1>Use the smallest<br>maxforge surface that works.</h1>
         <p>
           Compile text into <code>.maxpat</code> files, generate large repeated
-          graphs, or let an MCP-capable agent inspect and replace an explicitly
+          graphs, or let an HTTP-capable agent inspect and replace an explicitly
           managed patch scope. These are separate workflows with separate
           installation requirements.
         </p>
@@ -111,7 +111,7 @@
         <h2>Choose a surface</h2>
         <p>
           Do not install the native external just to compile a file. Do not start
-          the MCP server when a deterministic CLI command is enough. The extra
+          the HTTP server when a deterministic CLI command is enough. The extra
           layers only make sense when an agent must inspect or mutate an open Max
           patch.
         </p>
@@ -142,7 +142,7 @@
               </tr>
               <tr>
                 <td>Inspect or replace an open patch with an agent</td>
-                <td><code>maxforge-mcp</code> + <code>maxforge.sync</code></td>
+                <td><code>maxforge</code> + its automatic local service</td>
                 <td>Yes</td>
               </tr>
               <tr>
@@ -184,7 +184,7 @@
           </li>
           <li>
             <span>03</span>
-            <div>Restart Max, then create a <code>maxforge.sync</code> object or open its help patch.</div>
+            <div>Restart Max, then create a <code>maxforge</code> object or open its help patch.</div>
           </li>
         </ol>
         <div class="docs-paths">
@@ -276,7 +276,7 @@ patch "Title" | "Description" | 800x600</code></pre>
         <pre><code>name = type [arguments...] [@attribute value...] [at(x, y[, width, height])]</code></pre>
         <ul>
           <li><code>name</code> is unique inside its patcher and becomes a stable generated box ID.</li>
-          <li>The catalog contains 320 Max names/aliases with local identity evidence plus the project-owned <code>maxforge.sync</code> external.</li>
+          <li>The catalog contains 320 Max names/aliases with local identity evidence plus the project-owned <code>maxforge</code> external.</li>
           <li>Attributes become Max box properties; structural keys such as <code>id</code>, <code>maxclass</code>, <code>text</code>, and <code>patching_rect</code> are reserved.</li>
           <li>Write <code>\@attribute</code> when the literal <code>@attribute</code> must remain inside a <code>newobj</code> text string.</li>
           <li>Omit <code>at(x, y)</code> for automatic topological layout.</li>
@@ -348,7 +348,7 @@ filter = lores~ 1000 0.5 at(240, 180)</code></pre>
           <li><code>ports: "derive"</code> counts root <code>inlet</code>/<code>outlet</code> boxes and infers signal outlets from incoming source metadata.</li>
           <li>An abstraction name must match its existing <code>.maxpat</code> filename. Normal compilation validates but does not embed it, so Max still needs its directory on the search path. <code>bundle</code> copies referenced declared dependencies instead.</li>
           <li>Imported catalogs cannot recursively import more catalogs. Accidental name collisions fail unless <code>override: true</code> is explicit.</li>
-          <li><code>project.id</code> is the stable MCP persistence namespace. Imported catalogs cannot declare it, and unrelated projects must not share it.</li>
+          <li><code>project.id</code> is the stable HTTP persistence namespace. Imported catalogs cannot declare it, and unrelated projects must not share it.</li>
         </ul>
         <p>
           Use the public <a href="../schema/config-v1.json">project config schema</a>
@@ -437,51 +437,39 @@ source[1] -&gt; destination[2]</code></pre>
         </p>
       </section>
 
-      <section id="mcp" class="docs-section">
-        <div class="docs-section-label">09 / MCP SETUP</div>
-        <h2>Live MCP control</h2>
+      <section id="live" class="docs-section">
+        <div class="docs-section-label">09 / HTTP SETUP</div>
+        <h2>Live HTTP control</h2>
         <p>
-          Live control requires an MCP-capable agent, a per-session Node.js
-          <code>maxforge-mcp</code> frontend, its shared project broker, and one
-          native <code>maxforge.sync</code> object in each target patch. The npm
-          package does not install the Max external.
+          Install the complete Max package and create one <code>maxforge</code>
+          object. It starts a service using Max's own Node runtime. All objects
+          in that Max process share the service. No extra Node installation,
+          MCP setup, controller patch, or manual port selection is needed.
         </p>
         <div class="docs-code-window">
-          <div class="panel-bar"><span>mcp.json</span><span class="panel-state">JSON</span></div>
-          <pre><code>{
-  "mcpServers": {
-    "maxforge": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "--package=maxforge@latest",
-        "maxforge-mcp"
-      ]
-    }
-  }
-}</code></pre>
+          <div class="panel-bar"><span>Optional CLI client</span><span class="panel-state">SHELL</span></div>
+          <pre><code>maxforge live services
+maxforge live tools
+maxforge live call maxforge_list_patches '{}'</code></pre>
         </div>
         <p>
-          The first stdio frontend starts a detached broker; later frontends
-          attach to it instead of competing for project state or ports. The
-          broker remains alive while any MCP or Max client is connected and
-          stops after an idle grace period. It listens for native clients on
-          <code>ws://127.0.0.1:8766</code> by default. Set
-          <code>MAXFORGE_WS_TOKEN</code> to publish an authenticated bridge on
-          <code>0.0.0.0</code>, then use the same <code>@token</code> in Max.
-          LAN transport is plaintext and is intended only for trusted networks.
+          Discovery records live at <code>~/.maxforge/services/&lt;Max PID&gt;.json</code>.
+          Use its loopback port and bearer token to read <code>GET /v1/tools</code>
+          or call <code>POST /v1/tools/&lt;name&gt;</code> with JSON arguments.
+          The service survives patch and agent disconnects and exits with Max.
+          Browser requests and remote connections are not supported.
         </p>
         <p>
           If desired DSL uses a project external or abstraction, add an absolute
-          <code>MAXFORGE_CONFIG</code> path to the server's <code>env</code>.
+          <code>@config</code> path to the first object's text.
           After catalog edits, call <code>maxforge_reload_catalog</code> and
           verify the new digest with <code>maxforge_catalog</code>; restarting
-          the broker is unnecessary. The broker intentionally does not discover configuration
-          from its working directory.
+          the service is unnecessary. All objects share the first configuration;
+          conflicting configurations are rejected.
         </p>
         <p>
           Put a stable <code>project.id</code> in that config when managed state
-          and ordered edit evidence must survive broker restarts. Maxforge stores
+          and ordered edit evidence must survive Max restarts. Maxforge stores
           atomic state and a separate append-only NDJSON journal under
           <code>~/.maxforge/projects/&lt;project.id&gt;/</code>. Without a project ID,
           persistent edit history is disabled rather than merged into a shared
@@ -499,32 +487,24 @@ source[1] -&gt; destination[2]</code></pre>
           close every Max client and use
           <code>maxforge_erase_project_history</code> with the exact project ID
           and confirmation phrase. It deletes maxforge-owned history chunks and
-          the identity ledger and clears retained MCP observations. It does not
+          the identity ledger and clears retained HTTP observations. It does not
           delete Max/DSL/config files or desired-state cache, and it cannot
           guarantee secure overwrite on SSDs, backups, or filesystem snapshots.
         </p>
         <p>
-          Persistent state and history are single-writer and owned by the broker.
-          A deterministic loopback ownership endpoint is bound before bridge and
-          persistence startup; its holder acquires the project-owner lease, then
-          history creates <code>writer-v1.lock</code>. All stdio frontends share
-          that owner. Clean shutdown releases both leases and the endpoint. After a crash, a replacement
-          atomically recovers a valid lease only when its recorded process is
-          dead. Live or malformed leases are never displaced. This is exclusion,
-          not multi-writer merging.
+          Persistent state and history are single-writer and owned by the Max service.
+          A project writer lease prevents another Max instance from opening the same
+          persistent project. Without a config, desired-state persistence is scoped
+          to the current Max PID; retain complete DSL across Max restarts.
         </p>
         <p>
-          Use <code>maxforge broker status|start|stop|restart</code> for explicit
-          lifecycle and package upgrades. Stop/restart refuse connected clients;
-          <code>--force</code> may disconnect them but never interrupts a pending
-          native operation. MCP frontends attach only to a broker from the exact
-          same Maxforge package version. On mismatch, the frontend exposes a
-          diagnostic <code>maxforge_status</code> response with the running broker
-          status; restart the broker explicitly with the intended package.
+          Replace the whole Max package and restart Max for upgrades. Native and
+          bundled service versions must match. Agents use the service's installed
+          action schemas; no separately versioned agent server is required.
         </p>
       </section>
 
-      <section id="mcp-workflow" class="docs-section">
+      <section id="live-workflow" class="docs-section">
         <div class="docs-section-label">10 / SAFE WORKFLOW</div>
         <h2>Do not apply blind</h2>
         <p>Use this sequence for every unfamiliar or ambiguous live session:</p>
@@ -546,8 +526,8 @@ source[1] -&gt; destination[2]</code></pre>
         </div>
       </section>
 
-      <section id="mcp-tools" class="docs-section">
-        <div class="docs-section-label">11 / MCP TOOLS</div>
+      <section id="live-tools" class="docs-section">
+        <div class="docs-section-label">11 / HTTP TOOLS</div>
         <h2>Tool reference</h2>
         <div class="table-scroll">
           <table>
@@ -556,7 +536,7 @@ source[1] -&gt; destination[2]</code></pre>
               <tr><td><code>maxforge_help</code></td><td>Agent-facing workflow, setup, recovery, and safety instructions.</td></tr>
               <tr><td><code>maxforge_status</code></td><td>Server, target, revision, baseline, and effective catalog state.</td></tr>
               <tr><td><code>maxforge_catalog</code></td><td>Read loaded built-in/custom object metadata and its deterministic digest; not a Max runtime probe.</td></tr>
-              <tr><td><code>maxforge_reload_catalog</code></td><td>Atomically reload configured catalog files without restarting MCP or dropping Max registrations.</td></tr>
+              <tr><td><code>maxforge_reload_catalog</code></td><td>Atomically reload configured catalog files without restarting HTTP or dropping Max registrations.</td></tr>
               <tr><td><code>maxforge_list_patches</code></td><td>List exact registered <code>patcherId</code>/<code>scope</code> targets.</td></tr>
               <tr><td><code>maxforge_create_patch</code></td><td>Create a new unsaved top-level patch through one controller-capable external.</td></tr>
               <tr><td><code>maxforge_open_patch</code></td><td>Open an existing Max-host <code>.maxpat</code>, inject one bridge object, and wait for registration.</td></tr>
@@ -577,7 +557,7 @@ source[1] -&gt; destination[2]</code></pre>
         </div>
         <p>
           Live edit history is bounded and collapses edits inside one debounce
-          window. Project-scoped NDJSON survives broker restart; reconnect creates
+          window. Project-scoped NDJSON survives Max restart; reconnect creates
           a new session baseline instead of comparing across sessions. Saved
           paths are locators, not patch identities. Selection and gesture
           boundaries remain unavailable. Edit clusters are structural correlations, not recorded gestures or
@@ -591,25 +571,21 @@ source[1] -&gt; destination[2]</code></pre>
 
       <section id="external" class="docs-section">
         <div class="docs-section-label">12 / NATIVE EXTERNAL</div>
-        <h2><code>maxforge.sync</code></h2>
+        <h2><code>maxforge</code></h2>
         <p>
           The external owns WebSocket transport, stable patch registration,
           preflight validation, live structural inspection, and Max SDK mutation.
           It does not need <code>node.script</code>, <code>thispatcher</code>, a
           separate WebSocket object, routers, or bootstrap patch cords.
         </p>
-        <pre><code>maxforge.sync @patcher_id main_patch @scope voices @controller 0</code></pre>
+        <pre><code>maxforge</code></pre>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Attribute</th><th>Meaning</th></tr></thead>
             <tbody>
-              <tr><td><code>@patcher_id</code></td><td>Stable MCP routing identity. Do not derive it from the window title.</td></tr>
+              <tr><td><code>@patcher_id</code></td><td>Stable HTTP routing identity. Do not derive it from the window title.</td></tr>
               <tr><td><code>@scope</code></td><td>Exact managed ownership namespace.</td></tr>
-              <tr><td><code>@controller 0|1</code></td><td>Whether this patch may create new top-level patches.</td></tr>
-              <tr><td><code>@host</code></td><td>MCP host; defaults to <code>127.0.0.1</code>. A non-loopback host requires <code>@token</code>.</td></tr>
-              <tr><td><code>@port</code></td><td>WebSocket port; defaults to <code>8766</code>.</td></tr>
-              <tr><td><code>@token</code></td><td>Shared URL-safe LAN token matching <code>MAXFORGE_WS_TOKEN</code>.</td></tr>
-              <tr><td><code>@reconnect</code></td><td>Enable or disable automatic reconnect.</td></tr>
+              <tr><td><code>@config</code></td><td>Optional absolute catalog/project configuration path, shared by this Max process.</td></tr>
               <tr><td><code>@revision_state</code></td><td>Persisted optimistic-concurrency revision.</td></tr>
             </tbody>
           </table>
@@ -620,10 +596,8 @@ source[1] -&gt; destination[2]</code></pre>
           modify boxes outside that exact namespace.
         </p>
         <p>
-          Set <code>@controller 1</code> only on the single patch that may service
-          <code>maxforge_create_patch</code>. Normal managed targets should leave it
-          at <code>0</code>; patch creation is rejected unless exactly one connected
-          controller is available.
+          Any registered object can service <code>maxforge_create_patch</code>.
+          Closing the original patch does not stop other patches or the service.
         </p>
       </section>
 
@@ -635,7 +609,7 @@ source[1] -&gt; destination[2]</code></pre>
             <thead><tr><th>Situation</th><th>Required action</th></tr></thead>
             <tbody>
               <tr><td>Apply timed out</td><td>Do not retry. Call <code>maxforge_help</code> with <code>recovery</code>, inspect the live patch, and determine whether Max applied the revision.</td></tr>
-              <tr><td>Broker restarted</td><td>Check <code>maxforge_status</code>, restored state path/revision, then inspect. Restarting only a stdio frontend leaves broker state intact. Exact <code>currentDsl</code> is required only when persistence was disabled or unavailable.</td></tr>
+              <tr><td>Service failure</td><td>Restart Max, then status → list → inspect. Provide exact complete <code>currentDsl</code> if the previous baseline was not persisted.</td></tr>
               <tr><td>Max or the patch restarted</td><td>Wait for registration, then status → list → inspect before compiling another plan.</td></tr>
               <tr><td>Managed manual edit detected</td><td>Review first. Adopt the accepted current baseline with its exact token and retain returned <code>workingDsl</code>, or reconcile with a concrete next DSL.</td></tr>
               <tr><td>Unmanaged manual edit detected</td><td>Review it. Unmanaged-only edits are reported but do not block managed mutation.</td></tr>
@@ -657,10 +631,10 @@ source[1] -&gt; destination[2]</code></pre>
           <button class="copy-button" type="button" data-copy="npx skills add bbb-max-externals/maxforge --skill maxforge">Copy</button>
         </div>
         <div class="docs-command">
-          <code>npx skills add bbb-max-externals/maxforge --skill maxforge-mcp</code>
-          <button class="copy-button" type="button" data-copy="npx skills add bbb-max-externals/maxforge --skill maxforge-mcp">Copy</button>
+          <code>npx skills add bbb-max-externals/maxforge --skill maxforge-live</code>
+          <button class="copy-button" type="button" data-copy="npx skills add bbb-max-externals/maxforge --skill maxforge-live">Copy</button>
         </div>
-        <p>Use <code>maxforge</code> for offline authoring and compilation. Use <code>maxforge-mcp</code> for target selection, plan review, acknowledgement, inspection, and recovery discipline.</p>
+        <p>Use <code>maxforge</code> for offline authoring and compilation. Use <code>maxforge-live</code> for target selection, plan review, acknowledgement, inspection, and recovery discipline.</p>
       </section>
 
       <section id="limits" class="docs-section">
@@ -672,11 +646,11 @@ source[1] -&gt; destination[2]</code></pre>
           <li>A plan is fully validated before mutation, but arbitrary Max SDK mutation has no implemented rollback after a runtime failure.</li>
           <li>Inspection is structural. It does not serialize arbitrary object attributes, DSP values, UI values, patchline colors, hidden state, or line midpoints.</li>
           <li>Reverse compilation preserves structure and explicit positions; it does not reproduce the exact original DSL source text.</li>
-          <li>The MCP bridge stays on loopback without a token. Setting <code>MAXFORGE_WS_TOKEN</code> enables authenticated trusted-LAN access; the WebSocket remains plaintext and must not be exposed directly to the Internet.</li>
-          <li>The ownership marker is the reserved scripting-name namespace. The native consumer treats such boxes as owned, but MCP reconciliation rejects newly introduced reserved identities because inspection lacks enough metadata for safe adoption.</li>
+          <li>HTTP and WebSocket listen only on loopback with a generated token. Tokens are not saved in Max patches. Browser origins are rejected; LAN mode is not available.</li>
+          <li>The ownership marker is the reserved scripting-name namespace. The native consumer treats such boxes as owned, but HTTP reconciliation rejects newly introduced reserved identities because inspection lacks enough metadata for safe adoption.</li>
           <li>Reconciliation preserves observed edits to existing managed identities. Arbitrary object attributes omitted from structural inspection cannot be merged.</li>
           <li>Moving a managed box to another patcher path is not merged as a move; express the intended delete/add in complete DSL and resolve the conflict explicitly.</li>
-          <li>MCP apply plans carry the inspected structure token. If a box or cord changes before native mutation, <code>maxforge.sync</code> rejects the stale plan.</li>
+          <li>HTTP apply plans carry the inspected structure token. If a box or cord changes before native mutation, <code>maxforge</code> rejects the stale plan.</li>
           <li>The macOS external is not notarized.</li>
         </ul>
       </section>
@@ -687,9 +661,9 @@ source[1] -&gt; destination[2]</code></pre>
         <p>This page is the operational guide. Use the repository documents below for exact schemas and contracts.</p>
         <div class="reference-grid">
           <a href="https://github.com/bbb-max-externals/maxforge/blob/main/docs/dsl-spec.md"><strong>DSL specification</strong><span>Grammar, semantics, layout, output, and errors.</span></a>
-          <a href="https://github.com/bbb-max-externals/maxforge/blob/main/docs/mcp.md"><strong>MCP reference</strong><span>Tool arguments, results, lifecycle, troubleshooting, and failure contract.</span></a>
+          <a href="https://github.com/bbb-max-externals/maxforge/blob/main/docs/live.md"><strong>HTTP reference</strong><span>Tool arguments, results, lifecycle, troubleshooting, and failure contract.</span></a>
           <a href="https://github.com/bbb-max-externals/maxforge/blob/main/docs/patch-sync.md"><strong>Patch sync protocol</strong><span>Ownership, revisions, operation ordering, and consumer requirements.</span></a>
-          <a href="https://github.com/bbb-max-externals/maxforge/tree/main/examples"><strong>Examples</strong><span>Basic patches, repeated voice banks, native sync, and MCP controller setup.</span></a>
+          <a href="https://github.com/bbb-max-externals/maxforge/tree/main/examples"><strong>Examples</strong><span>Basic patches, repeated voice banks, native sync, and HTTP controller setup.</span></a>
         </div>
       </section>
     </article>

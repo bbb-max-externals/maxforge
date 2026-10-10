@@ -40,12 +40,12 @@ describe("Max package verifier", () => {
     });
   });
 
-  it("rejects a help patch that does not instantiate maxforge.sync", async () => {
+  it("rejects a help patch that does not instantiate maxforge", async () => {
     const root = await sourceFixture();
-    const helpPath = join(root, "help", "maxforge.sync.maxhelp");
+    const helpPath = join(root, "help", "maxforge.maxhelp");
     const help = JSON.parse(await readFile(helpPath, "utf8"));
     help.patcher.boxes = help.patcher.boxes.filter(
-      ({ box }: { box: { text?: string } }) => box.text !== "maxforge.sync"
+      ({ box }: { box: { text?: string } }) => box.text !== "maxforge"
     );
     await writeJson(helpPath, help);
 
@@ -54,8 +54,32 @@ describe("Max package verifier", () => {
       "--source",
       root,
     ])).rejects.toMatchObject({
-      stderr: expect.stringContaining("does not instantiate maxforge.sync"),
+      stderr: expect.stringContaining("does not instantiate maxforge"),
     });
+  });
+
+  it("requires packaged helper assets and rejects bundled Node runtimes", async () => {
+    const root = await sourceFixture();
+    const write = async (relative: string, content: string | Buffer) => {
+      await mkdir(dirname(join(root, relative)), { recursive: true });
+      await writeFile(join(root, relative), content, { mode: 0o755 });
+    };
+    const version = JSON.parse(await readFile(join(root, "package.json"), "utf8")).version;
+    await write("externals/maxforge.mxo/Contents/Info.plist", `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>jp.2bit.maxforge</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`);
+    await write("externals/maxforge.mxo/Contents/MacOS/maxforge", Buffer.from([0xca, 0xfe, 0xba, 0xbe]));
+    await write("externals/maxforge.mxe64", "MZfixture");
+    const services = ["externals/maxforge.mxo/Contents/Resources/service", "externals/maxforge-service"];
+    for (const service of services) {
+      for (const file of ["package.json", "dist/live/bin.js", "dist/live/http-server.js", "data/objects.json", "node_modules/ws/package.json", "node_modules/zod/package.json"]) {
+        await write(`${service}/${file}`, JSON.stringify({ version }));
+      }
+    }
+    await expect(execFileAsync("python3", [verifier, "--package", root])).resolves.toMatchObject({ stderr: "" });
+    await write(`${services[1]}/node.exe`, "not allowed");
+    await expect(execFileAsync("python3", [verifier, "--package", root])).rejects.toMatchObject({ stderr: expect.stringContaining("Node runtime must be provided by Max") });
+    await rm(join(root, services[1], "node.exe"));
+    await rm(join(root, services[1], "dist/live/bin.js"));
+    await expect(execFileAsync("python3", [verifier, "--package", root])).rejects.toMatchObject({ stderr: expect.stringContaining("missing required file") });
   });
 });
 
@@ -67,9 +91,9 @@ async function sourceFixture(): Promise<string> {
     "package-info.json",
     "README.md",
     "LICENSE",
-    "help/maxforge.sync.maxhelp",
+    "help/maxforge.maxhelp",
     "help/managed_plan.json",
-    "docs/maxforge.sync.maxref.xml",
+    "docs/maxforge.maxref.xml",
   ]) {
     const destination = join(root, relative);
     await mkdir(dirname(destination), { recursive: true });

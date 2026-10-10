@@ -197,9 +197,9 @@ def verify_site(site_directory: Path) -> list[str]:
             "generation",
             "connections",
             "subpatchers",
-            "mcp",
-            "mcp-workflow",
-            "mcp-tools",
+            "live",
+            "live-workflow",
+            "live-tools",
             "external",
             "recovery",
             "skills",
@@ -216,7 +216,7 @@ def verify_site(site_directory: Path) -> list[str]:
         for required_catalog_term in [
             "maxforge.config.json",
             "maxforge_catalog",
-            "MAXFORGE_CONFIG",
+            "@config",
             "runtime availability",
         ]:
             if required_catalog_term not in documentation_html:

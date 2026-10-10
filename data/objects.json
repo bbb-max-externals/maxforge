@@ -3793,7 +3793,7 @@
     "category": "logic",
     "argRule": "inlets = arg count, default 1"
   },
-  "maxforge.sync": {
+  "maxforge": {
     "maxclass": "newobj",
     "numinlets": 1,
     "numoutlets": 1,

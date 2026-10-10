@@ -26,9 +26,9 @@ The offline toolchain can:
 
 The repository also contains an **experimental** live-control stack:
 
-- `maxforge-mcp`, a Node.js MCP server; and
-- `maxforge.sync`, a native Max external that inspects and mutates its
-  containing patcher.
+- `maxforge`, one native Max object per controlled patch; and
+- an automatically started, bundled HTTP service using Max’s existing Node runtime shared by all
+  objects in the same Max process.
 
 The live stack is a managed desired-state system, not a general Max automation
 API, Max undo replacement, or transaction engine.
@@ -81,32 +81,20 @@ Run `npx maxforge@latest --help` or read the [CLI guide](docs/cli.md) for all
 commands and options. Third-party externals and abstractions require explicit
 metadata; see [Object catalogs](docs/object-catalog.md).
 
-## Live control through MCP
+## Live control
 
-Live control requires both the npm server and the native `maxforge.sync`
-external. Installing the npm package does **not** install the external into Max.
+Install the complete Max package from
+[GitHub Releases](https://github.com/bbb-max-externals/maxforge/releases), then
+create one `maxforge` object. Nothing else needs to be placed or started.
+The object automatically launches the bundled service; other patches share it.
 
-Codex configuration:
+Agents use the local HTTP API discovered from
+`~/.maxforge/services/<Max PID>.json`. Node/npm installation and MCP configuration
+are not required. An optional `maxforge live` CLI provides discovery and calls.
+Read [live setup and API contracts](docs/live.md) before mutation.
 
-```toml
-[mcp_servers.maxforge]
-command = "npx"
-args = ["-y", "--package=maxforge@latest", "maxforge-mcp"]
-```
-
-Install the Max package from
-[GitHub Releases](https://github.com/bbb-max-externals/maxforge/releases), then open a patch
-containing one `maxforge.sync` object. The server listens on
-`127.0.0.1:8766` by default.
-
-Each MCP invocation is a thin stdio frontend. The first frontend starts a
-detached project broker; later sessions attach to that broker instead of
-competing for the WebSocket port or project state. The broker remains alive
-while any MCP or Max client is connected and exits after an idle grace period.
-
-Read [MCP setup and tool contracts](docs/mcp.md) before relying on live
-mutation. The shorter [native synchronization overview](docs/patch-sync.md)
-documents ownership, revisions, rollback limits, and failure handling.
+This breaks compatibility: `maxforge.sync`, `maxforge-mcp`, and the old broker
+are removed. Update the complete Max package and restart Max.
 
 ## Other integrations
 
@@ -114,15 +102,24 @@ documents ownership, revisions, rollback limits, and failure handling.
   flat patches; nested targets require Max-side routing.
 - [AI agent guide](docs/agent-guide.md) — guidance for generating DSL and using
   managed live control.
-- Repository skills:
+- Agent-assisted live setup (Codex, available across projects):
 
   ```bash
-  npx skills add bbb-max-externals/maxforge --skill maxforge
-  npx skills add bbb-max-externals/maxforge --skill maxforge-mcp
+  npx skills add bbb-max-externals/maxforge --skill maxforge-live --agent codex --global
   ```
 
-Skills provide agent instructions only. They do not install the npm server or
-the native external.
+  Then ask: `Use $maxforge-live to install the Max package, uninstall the old
+  maxforge-mcp skill if present, and verify the connection.`
+  The skill guides official package download, checksum verification, whole-package
+  installation, and scoped legacy-skill removal. Installing the skill alone does
+  not run setup or remove anything. See its [setup procedure](skills/maxforge-live/references/setup.md).
+
+- Offline patch generation: install `--skill maxforge` instead. Omit `--global`
+  for project-local installation, or choose another supported `--agent`.
+
+Node/npm is needed for the `npx skills` installer, not for the live Max service.
+For local development, use this checkout's absolute path instead of
+`bbb-max-externals/maxforge`; GitHub installation only sees published commits.
 
 ## Documentation
 
@@ -131,7 +128,7 @@ the native external.
 | DSL grammar, expansion, errors, and output | [docs/dsl-spec.md](docs/dsl-spec.md) |
 | CLI commands and options | [docs/cli.md](docs/cli.md) |
 | External and abstraction metadata | [docs/object-catalog.md](docs/object-catalog.md) |
-| MCP setup, tools, persistence, security, and recovery | [docs/mcp.md](docs/mcp.md) |
+| HTTP setup, actions, persistence, security, and recovery | [docs/live.md](docs/live.md) |
 | Native managed-patch protocol | [docs/patch-sync.md](docs/patch-sync.md) |
 | `node.script` integration | [docs/node-script.md](docs/node-script.md) |
 | Module boundaries | [docs/architecture.md](docs/architecture.md) |

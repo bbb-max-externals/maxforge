@@ -74,9 +74,9 @@ for i in 0..7 {
 4. If targeting Max clipboard paste, use `--clipboard` and pipe/copy the output.
 5. For reverse engineering, use `maxforge decompile input.maxpat -o output.maxdsl`; positions round-trip via `at(x, y)`.
 6. For live managed patching, generate a plan with `maxforge plan` and apply it
-   to the native `maxforge.sync` external. Do not invent raw thispatcher commands
+   to the native `maxforge` external. Do not invent raw thispatcher commands
    when the target contains nested patchers.
-7. When MCP tools are available, call `maxforge_help` with `topic: "workflow"`
+7. When HTTP tools are available, call `maxforge_help` with `topic: "workflow"`
    first, then list patches, select the explicit `patcherId`, and require its
    `versionCompatible` field to be true before mutation. The loaded
    `externalVersion` must exactly match
@@ -94,18 +94,14 @@ for i in 0..7 {
    or use `maxforge_reconcile_patch` and apply with `manualChanges: "merge"`
    only when it reports `canApply: true`. Update the complete working DSL after
    either path. Use `maxforge_create_patch` when isolation in a
-   new Max window is required. Prefer the dedicated `maxforge-mcp` skill for
+   new Max window is required. Prefer the dedicated `maxforge-live` skill for
    sustained live control. Never treat a timeout as success. Inspection reports
    text/comments plus bounded scalar or flat-array box/patch-cord attributes;
    it intentionally omits volatile values, opaque attributes, and nested data.
    A failed apply attempts generated reverse operations but is not transactional;
    inspect before retrying even when the error says reverse operations completed.
-8. Restarting a stdio frontend leaves shared broker state intact. After a broker
-   restart, default schema-v1 state is migrated only when every graph can be
-   serialized losslessly to schema v2; a migration error must be resolved, not
-   treated as an empty baseline. If persisted state is genuinely unavailable,
-   provide the previous complete DSL as `currentDsl` when Max reports an
-   initialized scope. A revision hash is not a recoverable graph.
+8. The live service is owned by Max, not the agent. See `docs/live.md` for
+   configuration and persistence limits.
 
 ## Syntax reminders
 
@@ -133,7 +129,7 @@ for i in 0..7 {
 - For project externals or reusable `.maxpat` abstractions, create a strict
   `maxforge.config.json` using `schema/config-v1.json`. CLI compile, validate,
   plan, and bundle discover it upward from the input; `--config` selects one explicitly.
-  Add a unique stable `project.id` when MCP state and edit evidence must survive
+  Add a unique stable `project.id` when HTTP state and edit evidence must survive
   restarts; do not use a saved path, filename, or title as project/patch identity.
   For ambiguous retained history, inspect `maxforge_get_patch_history_identity`
   and require human confirmation before using
@@ -144,8 +140,8 @@ for i in 0..7 {
   connected clients, and the exact `ERASE PROJECT HISTORY <project.id>` phrase
   is available. It deletes the edit journal and identity ledger, not Max/DSL/
   config files or desired-state cache, and cannot guarantee SSD secure overwrite.
-- Treat persistent history as broker-owned single-writer state. Never remove
-  `writer-v1.lock` to run another broker. A replacement automatically reclaims
+- Treat persistent history as Max-service-owned single-writer state. Never remove
+  `writer-v1.lock` to run another writer. A replacement automatically reclaims
   a valid dead-process lease; it deliberately refuses a live or malformed lease.
 - Prefer fixed port metadata backed by the external's reference/help patch.
   Use bounded `ports.mode: "arguments"` when integer initialization arguments
@@ -181,9 +177,9 @@ and the repository issue URL instead of claiming it was created.
 - Full DSL spec: `docs/dsl-spec.md`
 - Public examples: `examples/basic_synth.maxdsl`, `examples/voice_bank.maxdsl`
 - Native live-sync example: `examples/max_sync/`
-- MCP-to-native-Max example: `examples/mcp_bridge/`
+- HTTP-to-native-Max example: `examples/live/`
 - Managed synchronization protocol: `docs/patch-sync.md`
-- MCP control and restart contract: `docs/mcp.md`
+- HTTP control and restart contract: `docs/live.md`
 - Object database used by the compiler: `data/objects.json`
 - Object evidence and limits: `docs/object-catalog.md`
 - Project catalog schemas: `schema/config-v1.json`, `schema/objects-v1.json`

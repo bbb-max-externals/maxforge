@@ -7,7 +7,7 @@ a maxforge DSL fragment with a live Max patcher.
 
 The DSL frontend is one input adapter. It compiles desired text into the shared
 `PatchGraph` domain, which produces a `PatchPlan`; neither the graph protocol nor
-the native external interprets DSL. The included `maxforge.sync` external
+the native external interprets DSL. The included `maxforge` external
 validates and applies plans through the Max SDK.
 
 ```text
@@ -17,7 +17,7 @@ DSL -> PatchGraph -> diffPatchGraphs(current, desired) -> PatchPlan -> Max consu
 The protocol version is currently `1`.
 
 See [Architecture](architecture.md) for the dependency rules between the DSL,
-patch domain, MCP application service, WebSocket transport, and native host.
+patch domain, HTTP application service, WebSocket transport, and native host.
 
 ## Scope and ownership
 
@@ -39,7 +39,7 @@ graph. A shorter prefix scope does not own a longer scope (`foo` does not own
 rejects `@varname` because overriding it would destroy ownership tracking.
 
 The reserved varname is the ownership marker in protocol version 1. The native
-consumer therefore treats a manually renamed object as scope-owned. The MCP
+consumer therefore treats a manually renamed object as scope-owned. The HTTP
 reconciler does **not** silently adopt a newly introduced reserved identity,
 because inspection does not contain enough object metadata to reconstruct a
 safe `PatchGraph`; it reports `managed_box_added` instead.
@@ -77,10 +77,10 @@ A plan contains:
 The consumer must reject a plan when `baseRevision` does not match its current
 managed revision. When `baseStructureToken` is present, it must also snapshot
 the live patch immediately before validation and reject a token mismatch before
-any operation runs. MCP apply plans include this token; standalone CLI plans may
+any operation runs. HTTP apply plans include this token; standalone CLI plans may
 omit it. A revision is optimistic concurrency control, not rollback.
 
-An empty operation list may still advance the revision when MCP adopts managed
+An empty operation list may still advance the revision when HTTP adopts managed
 human edits that already exist in Max. That acknowledgement is safe only when
 the service reconstructed the target graph from the live snapshot and bound the
 plan to that snapshot's `baseStructureToken`. It is not a generic revision-reset
@@ -125,7 +125,7 @@ managed-graph recovery, not transaction safety: recreated boxes receive new
 runtime IDs, opaque object state is not restored, and patch cords to unmanaged
 objects may already have been removed. Always inspect after an apply error.
 
-## maxforge.sync
+## maxforge
 
 Build the native consumer:
 
@@ -135,7 +135,7 @@ cmake -S . -B build
 cmake --build build
 ```
 
-`maxforge.sync` supports:
+`maxforge` supports:
 
 - automatic WebSocket connection and patch registration after the
   containing top-level patcher becomes visible;
@@ -146,25 +146,19 @@ cmake --build build
 - `applydict <name>` — validate and apply a named Max dictionary.
 - `inspect [request-id]` — emit a structural snapshot of the containing
   patcher without mutating it.
-- `register` — advertise the containing patcher's stable MCP identity,
+- `register` — advertise the containing patcher's stable HTTP identity,
   scope, revision, metadata, controller capability, and the version embedded in
   the loaded external.
 - `revision` — output the consumer's current revision.
 - `@scope <name>` — select the exact managed namespace.
-- `@patcher_id <name>` — select the stable MCP routing identity.
-- `@controller 0|1` — allow or deny native top-level patch creation requests.
+- `@patcher_id <name>` — select the stable HTTP routing identity.
 - `@revision_state <hash>` — persisted optimistic concurrency state.
-- `@host <address>` — select the MCP host; defaults to `127.0.0.1`.
-- `@port <1..65535>` — select the MCP WebSocket port.
-- `@token <value>` — authenticate a LAN connection. Required when `@host` is
-  not the literal loopback address `127.0.0.1` or `::1`.
-- `@reconnect 0|1` — enable or disable automatic reconnect.
-- `@reconnect_interval <100..60000>` — set reconnect delay in milliseconds.
+- `@config <absolute-path>` — select a catalog/project config for this Max process.
 
-Tokens contain 1–256 URL-safe characters: letters, digits, `.`, `_`, `~`, and
-`-`. Authentication is sent before registration and is not mirrored to the
-external's event outlet. The token is still stored as plain object text when
-the patch is saved.
+The first object automatically starts the shared service using Max's Node.
+Ports and authentication are internal; tokens are never saved in patch text.
+Any registered object can create a new top-level patch. No controller flag or
+LAN connection mode exists. See [live service](live.md).
 
 The external sends machine-readable events directly over its WebSocket
 connection and mirrors them on the outlet as `event <compact-json>`:
@@ -184,14 +178,14 @@ so they use error severity in the Max Console rather than appearing as ordinary
 posts.
 
 `maxforge.registered.externalVersion` comes from `package.json` at native build
-time. The MCP bridge compares it exactly with its own package version, exposes
+time. The HTTP bridge compares it exactly with its own package version, exposes
 `versionCompatible`, and rejects mutation through an incompatible registration.
 Registration, status, listing, and inspection remain available for diagnosis;
 an older external that does not report a version is shown as `unknown` and is
 not mutation-compatible. The containing patch's file path is not the loaded
 external's path and must not be used as a substitute for this runtime check.
 
-The MCP transport sends inspection requests directly to the registered
+The HTTP transport sends inspection requests directly to the registered
 external:
 
 ```json
@@ -203,7 +197,7 @@ external:
 }
 ```
 
-MCP apply requests use the same correlation and routing fields and contain the
+HTTP apply requests use the same correlation and routing fields and contain the
 plan under `plan`. Every applied, snapshot, and error response carries the
 request ID and patcher ID, preventing one patch's response from satisfying
 another patch's request.
@@ -220,7 +214,7 @@ A controller can receive:
 }
 ```
 
-The controller attribute must be enabled. `maxforge.sync` loads an unsaved
+The controller attribute must be enabled. `maxforge` loads an unsaved
 top-level patch through the Max SDK, triggers its bootstrap loadbang, and
 acknowledges creation. The generated patch inherits the controller's host,
 port, and token, then registers through its own native WebSocket connection.
@@ -277,7 +271,7 @@ both root objects and objects inside `p generated_bank`.
 
 ## Current limitations
 
-- MCP graph, intent, baseline, and in-flight apply state is atomically persisted
+- HTTP graph, intent, baseline, and in-flight apply state is atomically persisted
   by default. `currentDsl` re-seeding is only required when persistence was
   disabled or the matching state file is unavailable. Default schema-v1 state
   is migrated to schema v2 only after all stored graphs round-trip losslessly;
@@ -285,7 +279,7 @@ both root objects and objects inside `p generated_bank`.
 - New patch creation requires exactly one registered controller patch.
 - A `PatchPlan` is not atomic by itself.
 - Runtime/standalone Max support is not guaranteed.
-- MCP comparison baselines begin after an acknowledged apply and survive normal
+- HTTP comparison baselines begin after an acknowledged apply and survive normal
   process restarts. A snapshot cannot reconstruct edit history predating the
   first stored baseline.
 - Human-edit review classifies observed differences but cannot prove intent.
@@ -297,7 +291,7 @@ both root objects and objects inside `p generated_bank`.
   not automatically claim unmanaged boxes. It returns a lossless explicit
   working DSL, but the agent must replace its own source with that result.
 - Native edit observation provides bounded ordering evidence only while both
-  `maxforge.sync` and the MCP bridge remain connected. Notifications are
+  `maxforge` and the HTTP bridge remain connected. Notifications are
   debounced for 75 ms and emitted only when a full structural snapshot token
   changes. Agent-authored plan application is suppressed. Multiple edits in a
   debounce window collapse into one observation, notification causes may be

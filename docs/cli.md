@@ -1,9 +1,8 @@
 # CLI guide
 
 The `maxforge` executable provides offline DSL compilation, decompilation,
-validation, catalog inspection, plan generation, package bundling, and MCP
-broker lifecycle management. Live MCP stdio is still exposed by
-`maxforge-mcp`.
+validation, catalog inspection, plan generation, package bundling, and thin HTTP
+client access to the Max-owned service.
 
 ## Run without global installation
 
@@ -120,25 +119,16 @@ The command builds a Max package directory and copies referenced paths declared
 in the project catalog. It does not discover or redistribute undeclared
 dependencies automatically.
 
-### `broker`
+### `live`
 
-```bash
-maxforge broker status --config /absolute/path/maxforge.config.json
-maxforge broker start --config /absolute/path/maxforge.config.json
-maxforge broker stop --config /absolute/path/maxforge.config.json
-maxforge broker restart --config /absolute/path/maxforge.config.json
+```sh
+maxforge live services
+maxforge live tools --pid 12345
+maxforge live call maxforge_list_patches '{}' --pid 12345
 ```
 
-The command manages the detached project broker used by per-session
-`maxforge-mcp` frontends. `stop` and `restart` refuse connected MCP/Max clients
-or pending native operations. `--force` may disconnect clients during an
-explicit upgrade, but pending operations remain non-interruptible. Use the new
-package executable when replacing an old broker:
-
-```bash
-npx -y --package=maxforge@latest maxforge broker restart \
-  --config /absolute/path/maxforge.config.json --force
-```
+The service starts automatically inside Max. This client never starts or stops
+it. See [live control](live.md) for direct HTTP without installing the CLI.
 
 ## Shared options
 

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 function source(relativePath: string): string {
@@ -22,7 +22,7 @@ function yamlString(yaml: string, field: string): string {
 }
 
 describe("agent skills", () => {
-  for (const skillName of ["maxforge", "maxforge-mcp"]) {
+  for (const skillName of ["maxforge", "maxforge-live"]) {
     it(`${skillName} has valid invocation metadata`, () => {
       const markdown = source(`skills/${skillName}/SKILL.md`);
       const metadata = source(`skills/${skillName}/agents/openai.yaml`);
@@ -38,40 +38,35 @@ describe("agent skills", () => {
     });
   }
 
-  it("keeps the live-control skill tool inventory aligned with the MCP server", () => {
-    const server = source("src/mcp/mcp-server.ts");
-    const skill = source("skills/maxforge-mcp/SKILL.md");
-    const registered = [...server.matchAll(
-      /server\.registerTool\(\s*["'](maxforge_[a-z_]+)["']/g
-    )].map((match) => match[1]);
-    const requiredSection = skill
-      .split("## Tool availability and setup")[1]
-      ?.split("\n## ")[0];
-    if (!requiredSection) throw new Error("missing required MCP tool section");
-    const documented = [...requiredSection.matchAll(
-      /^- `(maxforge_[a-z_]+)`$/gm
-    )]
-      .map((match) => match[1]);
-
-    expect(new Set(documented).size).toBe(documented.length);
-    expect(documented.sort()).toEqual(registered.sort());
+  it("documents HTTP discovery instead of a separately installed server", () => {
+    const skill = source("skills/maxforge-live/SKILL.md");
+    expect(skill).toContain("GET /v1/tools");
+    expect(skill).toContain("Authorization: Bearer");
+    expect(skill).toContain("maxforge live services");
+    expect(skill).not.toContain("--package=maxforge@");
   });
 
-  it("keeps live-control version guidance release-independent", () => {
-    const skill = source("skills/maxforge-mcp/SKILL.md");
+  it("ships setup references inside the independently installable live skill", () => {
+    const root = new URL("../skills/maxforge-live/", import.meta.url);
+    const markdown = readFileSync(new URL("SKILL.md", root), "utf8");
+    const links = [...markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)]
+      .map((match) => match[1])
+      .filter((link) => !/^(?:[a-z]+:|#)/i.test(link));
 
-    expect(skill).toContain("--package=maxforge@latest");
-    expect(skill).toContain("--package=maxforge@X.Y.Z");
-    expect(skill).not.toMatch(/maxforge@\d+\.\d+\.\d+/);
-    expect(skill).toContain("never copy a version number from this skill");
-    expect(skill).toContain("maxforge broker status");
-    expect(skill).toContain("maxforge broker restart");
+    expect(links).toContain("references/setup.md");
+    for (const link of links) {
+      const target = new URL(link, root);
+      expect(target.href.startsWith(root.href)).toBe(true);
+      expect(readFileSync(target, "utf8").trim().length).toBeGreaterThan(0);
+    }
+    expect(existsSync(new URL("../skills/maxforge-mcp/SKILL.md", import.meta.url)))
+      .toBe(false);
   });
 
   it("rejects known fabricated Max signal object names in agent guidance", () => {
     const guidance = [
       source("skills/maxforge/SKILL.md"),
-      source("skills/maxforge-mcp/SKILL.md"),
+      source("skills/maxforge-live/SKILL.md"),
     ].join("\n");
 
     expect(guidance).not.toMatch(/`(?:s~|r~)`/);

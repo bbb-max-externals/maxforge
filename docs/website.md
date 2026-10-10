@@ -5,7 +5,7 @@ dependency-free source lives in `site/`; it is not generated from the README and
 does not require Jekyll or a Node.js build.
 
 `site/index.html` is the product overview. `site/docs/index.html` is the
-operational documentation for installation, CLI commands, DSL authoring, MCP
+operational documentation for installation, CLI commands, DSL authoring, HTTP
 target selection, the native external, recovery, Skills, and current safety
 limits. Keep detailed protocol schemas in the repository Markdown and link to
 them from the HTML guide instead of duplicating every schema.

@@ -1,9 +1,13 @@
 # Max package releases
 
-GitHub Actions builds `maxforge.sync` for macOS and Windows and publishes one
+GitHub Actions builds `maxforge` for macOS and Windows and publishes one
 installable Max package archive. This is separate from the npm package: npm
-provides the DSL CLI and MCP server, while `maxforge.zip` provides the native
+provides the DSL CLI and optional HTTP client, while `maxforge.zip` provides the native
 external and its Max-facing resources.
+
+The Max package includes service code/dependencies but **no Node binary**. It
+uses the Node shipped with Max. Run `scripts/stage-service.mjs` before signing;
+never modify resources after signing.
 
 ## Archive contract
 
@@ -13,13 +17,14 @@ The release asset is always named `maxforge.zip` and has one top-level
 ```text
 maxforge/
 ├── externals/
-│   ├── maxforge.sync.mxo      # universal x86_64 + arm64
-│   └── maxforge.sync.mxe64    # Windows x64
+│   ├── maxforge.mxo      # universal x86_64 + arm64, service under Contents/Resources/
+│   ├── maxforge.mxe64    # Windows x64
+│   └── maxforge-service/ # Windows service code + production dependencies, no Node
 ├── help/
-│   ├── maxforge.sync.maxhelp
+│   ├── maxforge.maxhelp
 │   └── managed_plan.json
 ├── docs/
-│   └── maxforge.sync.maxref.xml
+│   └── maxforge.maxref.xml
 ├── examples/
 ├── package-info.json
 ├── README.md
@@ -91,9 +96,9 @@ solve it safely.
 
 ## macOS signing status
 
-The min-api build ad-hoc signs `maxforge.sync.mxo`. CI verifies the signature,
+The min-api build ad-hoc signs `maxforge.mxo`. CI verifies the signature,
 the universal architectures, the executable permission, and the bundle
-identifier `jp.2bit.maxforge.sync`.
+identifier `jp.2bit.maxforge`.
 
 The archive is **not notarized** and must not be called Gatekeeper-safe. Adding
 Developer ID signing and Apple notarization requires a separate release-policy

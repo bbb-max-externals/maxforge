@@ -166,8 +166,8 @@ attr_value ::= NUMBER | STRING | unquoted_token
 - Attribute names must be non-empty identifiers, every attribute requires at
   least one value, and duplicate keys on one object are syntax errors.
 - Prefix an object argument with `\` when the literal token must begin with
-  `@`. For example, `maxforge.sync \@host 127.0.0.1` emits the object text
-  `maxforge.sync @host 127.0.0.1` instead of a `host` box JSON key.
+  `@`. For example, `maxforge \@scope voices` emits the object text
+  `maxforge @scope voices` instead of a `scope` box JSON key.
 - The decompiler adds this escape to literal `@` tokens in `newobj` text so
   compile/decompile round-trips preserve Max initialization arguments.
 
@@ -425,7 +425,7 @@ When the compiler encounters `name = type_text`, it:
 
 The bundled catalog contains 319 entries: 318 Max object names or aliases with
 identity evidence in the locally audited Max 9 resources, plus the project-owned
-`maxforge.sync` external. This is not a complete Max API. Catalog membership is
+`maxforge` external. This is not a complete Max API. Catalog membership is
 also not a claim that an optional package is installed on every Max system.
 
 The exact evidence hierarchy, generated-metadata limits, dynamic-port behavior,
@@ -448,7 +448,7 @@ concrete paths into a Max package directory; it still does not prove runtime
 compatibility. See [`object-catalog.md`](object-catalog.md#project-object-catalogs)
 and the published `config-v1.json` schema.
 
-The MCP server never performs input-path discovery. Its initial database uses
+The HTTP server never performs input-path discovery. Its initial database uses
 only the explicit `MAXFORGE_CONFIG` setting; after those catalog files change,
 `maxforge_reload_catalog` can atomically replace the loaded database.
 

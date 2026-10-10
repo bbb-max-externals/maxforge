@@ -7,7 +7,7 @@ import {
 } from "../src/max/patch-graph.js";
 import { compileDslToPatchGraph } from "../src/max/dsl-patch-graph.js";
 import { MaxforgePatcherSnapshot } from "../src/max/patch-protocol.js";
-import { reconcilePatchGraphs } from "../src/mcp/reconcile.js";
+import { reconcilePatchGraphs } from "../src/live/reconcile.js";
 
 const database = dbData as unknown as ObjectDatabase;
 
