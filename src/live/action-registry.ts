@@ -41,7 +41,7 @@ export class ActionRegistry {
     return [...this.actions].map(([name, { definition }]) => ({
       ...definition,
       name,
-      inputSchema: z.toJSONSchema(definition.inputSchema),
+      inputSchema: z.toJSONSchema(definition.inputSchema, { io: "input" }),
       outputSchema: z.toJSONSchema(definition.outputSchema),
     }));
   }

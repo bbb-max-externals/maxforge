@@ -5,6 +5,7 @@ import {
   createEmptyPatchGraph,
   createPatchGraph,
   diffPatchGraphs,
+  managedIdFromVarName,
   parse,
   PatchGraph,
   patchGraphToDsl,
@@ -23,6 +24,13 @@ function compileGraph(source: string, scope = "voices"): PatchGraph {
 }
 
 describe("managed patch graphs", () => {
+  it("rejects numeric-only managed identity suffixes", () => {
+    expect(managedIdFromVarName("voices", "maxforge_voices_obj_1")).toBeNull();
+    expect(managedIdFromVarName("voices", "maxforge_voices_obj_1osc")).toBe(
+      "obj-1osc"
+    );
+  });
+
   it("serializes nested managed graphs to lossless explicit working DSL", () => {
     const graph = compileGraph(`
 source = cycle~ 440 @presentation 1 at(-12.5, 20.25, 123.5, 31)
@@ -58,6 +66,26 @@ gain_ = *~ 0.5 at(120, 20, 60, 22)
     expect(workingDsl).toContain("1osc = cycle~ 440");
     expect(workingDsl).toContain("gain_ = *~ 0.5");
     expect(workingDsl).toContain("1osc -> gain_");
+    expect(compileGraph(workingDsl)).toEqual(graph);
+  });
+
+  it("expands port ranges into explicit managed graph connections", () => {
+    const graph = compileGraph(`
+source = trigger b b b b
+destination = pack 0 0 0 0 0 0
+source[0..3] -> destination[2..5]
+`);
+
+    expect(graph.patcher.connections).toHaveLength(4);
+    expect(graph.patcher.connections.map((connection) => [
+      connection.source.port,
+      connection.destination.port,
+    ])).toEqual([[0, 2], [1, 3], [2, 4], [3, 5]]);
+
+    const workingDsl = patchGraphToDsl(graph);
+    expect(workingDsl).not.toContain("..");
+    expect(workingDsl).toContain("source -> destination[2]");
+    expect(workingDsl).toContain("source[3] -> destination[5]");
     expect(compileGraph(workingDsl)).toEqual(graph);
   });
 

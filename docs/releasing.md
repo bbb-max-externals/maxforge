@@ -2,8 +2,8 @@
 
 GitHub Actions builds `maxforge` for macOS and Windows and publishes one
 installable Max package archive. This is separate from the npm package: npm
-provides the DSL CLI and optional HTTP client, while `maxforge.zip` provides the native
-external and its Max-facing resources.
+provides the DSL CLI and optional HTTP client, while the versioned
+`maxforge-vX.Y.Z.zip` provides the native external and its Max-facing resources.
 
 The Max package includes service code/dependencies but **no Node binary**. It
 uses the Node shipped with Max. Run `scripts/stage-service.mjs` before signing;
@@ -11,8 +11,9 @@ never modify resources after signing.
 
 ## Archive contract
 
-The release asset is always named `maxforge.zip` and has one top-level
-`maxforge` directory:
+For version `X.Y.Z`, the release assets are named
+`maxforge-vX.Y.Z.zip` and `maxforge-vX.Y.Z.zip.sha256`. The archive has one
+top-level `maxforge` directory:
 
 ```text
 maxforge/
@@ -48,17 +49,26 @@ on Linux after CI: that can damage macOS bundle metadata and permissions.
 
 - pull requests targeting `main`: build, test, validate, and upload the Actions
   artifact only;
-- pushes to `main`: do the same and force-update the moving `latest` tag and
-  `latest` GitHub Release;
+- pushes to `main`: do the same and upload a commit-named
+  `maxforge-ci-<commit>.zip` Actions artifact;
 - a published GitHub Release: rebuild the tagged source and attach
-  `maxforge.zip` to that versioned release;
-- manual `workflow_dispatch`: build and upload the Actions artifact without
-  changing a release.
+  `maxforge-vX.Y.Z.zip` and its checksum to that versioned release; the workflow
+  rejects a release tag that differs from `package.json`;
+- manual `workflow_dispatch`: build and upload the same commit-named CI artifact
+  without changing a release.
 
 Push and pull-request runs use one concurrency group per event and ref. A newer
-commit cancels an older run for the same branch so an obsolete package cannot
-overwrite the moving `latest` release after a newer build. Published-release
-and manual runs are not auto-cancelled.
+commit cancels an older run for the same branch. Published-release and manual
+runs are not auto-cancelled. There is deliberately no moving `latest` Git tag,
+GitHub Release, or unversioned public ZIP: release traceability requires a
+one-to-one npm version, Git tag, and native package. The optional HTTP client
+does not need to match the live package version.
+
+Only a matching published-release event may produce
+`maxforge-vX.Y.Z.zip`. Main, pull-request, and manual builds use the source
+commit in both Actions artifact and ZIP names. This prevents unpublished source
+changes from masquerading as an already published semantic version. CI archives
+are test evidence, not installer inputs.
 
 The package combines both platforms, matching the other bbb Max packages. Max
 ignores the external extension for the other platform.
@@ -94,16 +104,15 @@ dependency public or moving the shared transport into a public source
 dependency is the only way to remove this limitation; workflow tricks do not
 solve it safely.
 
-## macOS signing status
+## macOS signing and notarization
 
-The min-api build ad-hoc signs `maxforge.mxo`. CI verifies the signature,
-the universal architectures, the executable permission, and the bundle
-identifier `jp.2bit.maxforge`.
-
-The archive is **not notarized** and must not be called Gatekeeper-safe. Adding
-Developer ID signing and Apple notarization requires a separate release-policy
-decision and Apple credentials. Missing notarization credentials must not be
-hidden by claiming the ad-hoc build is equivalent.
+CI replaces the min-api ad-hoc signature with the configured Developer ID
+Application signature, and verifies the authority, team ID, bundle identifier,
+universal architectures, and executable permission. Release, main-push, and
+manual package builds submit the final release or commit-named ZIP to Apple's notarization
+service and verify the accepted archive before upload. These paths require the
+documented signing/notarization secrets; a missing credential fails the build
+rather than silently producing an unsigned public package.
 
 ## Versioned release procedure
 
@@ -129,11 +138,10 @@ npm run pack:dry-run
 ```
 
 Commit and push the synchronized version files. Wait for the `main` workflow to
-succeed before publishing either distribution. Publish npm from that exact
-commit, then create and publish the matching GitHub tag and release:
+succeed before publishing either distribution. Create the matching Git tag and
+GitHub Release from that exact commit first:
 
 ```bash
-npm publish
 git tag v<VERSION>
 git push origin v<VERSION>
 gh release create v<VERSION> --verify-tag --generate-notes
@@ -145,7 +153,17 @@ same source commit.
 
 Publishing the GitHub Release starts a clean macOS and Windows rebuild. Do not
 upload a locally built external as a substitute. Confirm that the workflow is
-green and that the release contains `maxforge.zip` before announcing it.
+green and the release contains `maxforge-v<VERSION>.zip` plus its checksum.
+Only then publish npm from the same clean tagged commit:
+
+```bash
+npm publish
+```
+
+This order prevents npm's `latest` dist-tag from pointing to a version whose
+matching native package is not available yet. The brief inverse state—native
+artifact available before npm—is harmless: the complete Max package runs
+independently of the optional npm CLI.
 
 ## Local checks
 
@@ -160,6 +178,7 @@ After placing both CI-built externals in `dist/maxforge/externals/`:
 ```bash
 scripts/assemble-max-package.sh dist/maxforge
 python3 scripts/verify-max-package.py --package dist/maxforge
-ditto -c -k --keepParent dist/maxforge dist/maxforge.zip
-python3 scripts/verify-max-package.py --archive dist/maxforge.zip
+version="$(node -p 'require("./package.json").version')"
+ditto -c -k --keepParent dist/maxforge "dist/maxforge-v${version}.zip"
+python3 scripts/verify-max-package.py --archive "dist/maxforge-v${version}.zip"
 ```

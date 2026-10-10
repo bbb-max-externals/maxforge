@@ -35,24 +35,48 @@ the private helper manually.
 
 ## Editing
 
-Call `maxforge_help` with topic `workflow` before mutation and discover schemas
-from `/v1/tools`. Read complete results from `structuredContent`; check `isError`
-even on HTTP 200. Use help topic `recovery` after ambiguous failures.
+Discover schemas from `/v1/tools`. Require `maxforge_prepare_change`,
+`maxforge_apply_prepared_change`, and `maxforge_get_working_source`. Call
+`maxforge_help` with topic `workflow` when the contract is unfamiliar or tools
+are missing. Read results from `structuredContent`; check `isError` even on
+HTTP 200. Use help topic `recovery` after ambiguous failures.
 
 Select patcherId/scope only from `maxforge_list_patches`. Require
 versionCompatible: failure means a mixed Max package, not an outdated agent npm.
 Inspect and pass the exact structure token. Never route by title or filename.
 
-DSL is complete desired state: omitted managed objects are deleted. Preview
-nontrivial changes with `maxforge_compile_plan`. Review human edit evidence
-without claiming it proves intent. Adopt accepted changes with the reviewed
-token, or reconcile concrete next DSL; merge only after canApply=true.
-Retain returned workingDsl as the next source.
+DSL is complete desired state: omitted managed objects are deleted. Send the
+complete `desiredDsl` once to `maxforge_prepare_change`, or use retained
+`baseSourceRef` plus `edits` for local changes. Line ranges are 1-based half-open
+`[startLine, endLine)`, non-overlapping, relative to the original source; equal
+boundaries insert. Read bounded snippets with `maxforge_get_working_source`
+`detail: "matches"`; fetch `detail: "full"` only for broad rewrites or recovery.
 
-Require acknowledgement.revision to equal targetRevision. Missing baseline or
+Require `canApply: true`. Review counts, all deletes/disconnects, replacements,
+warnings, and conflicts before sending only `receiptId` to
+`maxforge_apply_prepared_change`. Receipts are process-local, expire, and are
+consumed before native mutation: never retry one after a timeout or rejection.
+Inspect the outcome first, then prepare a fresh receipt if appropriate.
+
+Review human edit evidence without claiming it proves intent. The default
+review is compact; request `detail: "full"` for exact before/after evidence.
+Adopt accepted changes with the reviewed token, or prepare concrete next DSL
+with `manualChanges: "merge"`; merge only after canApply=true. Retain returned
+`sourceRef`. If `workingDslRequiredAsCurrent` is true, use that ref as
+`currentSourceRef` for full-source preparation or `baseSourceRef` for edits.
+
+Require acknowledgement.revision to equal targetRevision and statePersisted
+to be true; check verification revision/counts when present. Missing baseline or
 persistence warnings do not authorize replay: inspect first. Save explicitly.
 Do not discard dirty patches, overwrite files, resolve ambiguous identities, or
 erase history without user authority.
+
+Use meaningful DSL names derived from function, routing, comments, and existing
+vocabulary. A name becomes a managed varname and is structural identity:
+renaming is not just relabeling. When extending an existing patch,
+inspect the surrounding patch context before naming it.
+Do not silently claim an unmanaged human-created box; preserve its ownership
+unless the user explicitly authorizes adoption through the supported workflow.
 
 ## Constraints
 

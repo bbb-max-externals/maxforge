@@ -50,11 +50,15 @@ describe("Max-owned HTTP service", () => {
     });
     expect(spoofedHostStatus).toBe(403);
     const tools = await (await fetch(`${url}/v1/tools`, { headers })).json() as {
-      apiVersion: number; tools: Array<{ inputSchema: { type: string } }>;
+      apiVersion: number; tools: Array<{ name: string; inputSchema: { type: string; required?: string[] } }>;
     };
     expect(tools.apiVersion).toBe(1);
     expect(tools.tools).toHaveLength(21);
     expect(tools.tools.every((tool: { inputSchema: { type: string } }) => tool.inputSchema.type === "object")).toBe(true);
+    expect(tools.tools.find((tool) => tool.name === "maxforge_inspect_patch")?.inputSchema.required)
+      .toEqual(["patcherId", "scope"]);
+    expect(tools.tools.find((tool) => tool.name === "maxforge_get_working_source")?.inputSchema.required)
+      .toEqual(["patcherId", "scope"]);
     const call = (action: string, body: string) => fetch(`${url}/v1/tools/${action}`, { method: "POST", headers, body });
     expect((await call("maxforge_help", "{")).status).toBe(400);
     expect((await call("maxforge_help", '{"topic":"invalid"}')).status).toBe(400);

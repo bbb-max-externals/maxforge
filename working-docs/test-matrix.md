@@ -2,15 +2,14 @@
 
 ## Purpose
 
-Maxforge crosses five runtime and persistence boundaries: MCP host, stdio
-frontend, detached broker, native `maxforge.sync`, and Max itself. Line coverage
-cannot show whether those boundaries survive replacement, restart, or human
-editing. This matrix assigns each boundary to CI or to an explicit human test.
+Maxforge crosses the HTTP client, Max-owned helper, native external, and Max
+patcher/persistence boundaries. Line coverage cannot prove native lifecycle or
+human editing. This matrix assigns each boundary to CI or to an explicit human test.
 
 Status meanings:
 
 - **CI** — deterministic and required by `.github/workflows/build-max-package.yml`.
-- **Human** — requires a real Max host, MCP-host lifecycle, another machine, or
+- **Human** — requires a real Max host, Max-owned helper lifecycle, or
   visual/OS confirmation.
 - **Partial** — useful automation exists, but a real-host property remains.
 
@@ -21,26 +20,27 @@ Status meanings:
 | A01 | DSL parsing, blocks, `for`, `if`, arithmetic, diagnostics | CI | `tests/block.test.ts`, `tests/expander.test.ts`, `tests/compiler.test.ts` | None for language semantics |
 | A02 | Built-in/project catalog, known-invalid names, argument-dependent ports | CI / Partial | CI checks catalog structure, reviewed regressions, and argument rules; it does not prove every built-in name exists | H08 proves declared custom objects in Max; H10 audits built-ins against installed Max resources |
 | A03 | Patch graph conversion, diff, merge, layout, patch-cord metadata | CI | `tests/patch-graph.test.ts`, `tests/patch-merge.test.ts`, `tests/reconcile.test.ts`, `tests/thispatcher.test.ts` | H02 checks the native Max result |
-| A04 | MCP schemas, help, tool responses, target routing | CI | `tests/mcp-server.test.ts`, `tests/mcp-service.test.ts`, `tests/mcp-bridge.test.ts` | H02–H04 check one real MCP host and Max session |
-| A05 | Human-edit evidence, review/adopt/reconcile, stale tokens | CI / Partial | Service tests model an opaque changing token and reject an edit between cached inspection and apply; authoritative native CTest separately fixes the FNV token vector | H02 supplies edits through the Max UI rather than synthetic snapshots |
-| A06 | State/history persistence, torn records, migration, writer lease | CI / Partial | `tests/mcp-state-store.test.ts`, `tests/mcp-edit-history-store.test.ts`, `tests/process-lease.test.ts` | H04 checks recovery across actual application/client restarts |
-| A07 | Broker sharing, idle exit, dead owner, version/config mismatch | CI | `tests/mcp-broker.test.ts`, `tests/mcp-broker-lifecycle.test.ts` | H05 checks the MCP host's reconnect control |
-| A08 | Broker replacement and forced restart | CI / Partial | CI checks stale diagnostic refresh, disappearance, compatible replacement, diagnostic-only tools, and old-frontend exit | H05 confirms that the real MCP host exposes full tools only after reconnect |
-| A09 | npm tarball contents, exports, and executable entrypoints | CI | `npm run test:package` rebuilds, installs a clean tarball, checks all declared bins, runs `maxforge` and `maxforge-broker`, initializes `maxforge-mcp`, and imports `maxforge/mcp` | H09 checks the published registry package rather than the local tarball |
+| A04 | HTTP schemas, compact review/prepare/apply responses, source refs/edits, target routing | CI | `tests/live-actions.test.ts`, `tests/live-service.test.ts`, `tests/live-bridge.test.ts`; a 1,000-object prepare response is bounded below 10 KB and omits bulk plans | H02–H04 check one real HTTP client and Max session |
+| A05 | Human-edit evidence, review/adopt/merge preparation, stale tokens and one-time receipts | CI / Partial | Service tests cover source-ref staleness, receipt consumption/eviction/catalog/revision races, and native structure change between prepare and apply; authoritative native CTest fixes the FNV token vector | H02 supplies edits through the Max UI rather than synthetic snapshots |
+| A06 | State/history persistence, torn records, migration, writer lease | CI / Partial | `tests/live-state-store.test.ts`, `tests/live-edit-history-store.test.ts`, `tests/process-lease.test.ts` | H04 checks recovery across actual application/client restarts |
+| A07 | HTTP discovery, authentication, owner-pipe exit, mixed package rejection | CI / Partial | `tests/live-http.test.ts` | H04 checks native singleton ownership across patches |
+| A08 | Whole-package update and helper startup errors | Partial | HTTP lifecycle tests reject version mismatch | H05/H06 check Max load and error channel |
+| A09 | npm tarball contents, exports, and executable entrypoints | CI | `npm run test:package` rebuilds, installs a clean tarball, checks CLI bin/exports, live client discovery, and absence of legacy MCP artifacts | H09 checks the published registry package rather than the local tarball |
 | A10 | Native protocol parsing/serialization | CI / Partial | CTest runs on macOS and Windows in package CI | H01–H03 exercise Max SDK calls and actual patcher mutation |
 | A11 | Max package source, help, macOS universal binary, Windows external, release zip | CI / Partial | generated-artifact tests bind help patch and managed plan to DSL sources; package verifier plus macOS/Windows build jobs check assembly | H09 checks Max search paths, loading, and OS security behavior after download |
 | A12 | Documentation links and GitHub Pages assets | CI | `npm run docs:check`, Pages verifier, JavaScript syntax check | Visual browser review only when site presentation changes |
-| A13 | Authenticated LAN bind and token rejection | CI / Partial | bridge and entrypoint tests cover bind/token protocol behavior | H07 checks routing/firewall behavior between physical hosts |
+| A13 | Loopback authentication and browser/Host rejection | CI / Partial | `tests/live-http.test.ts` | H07 checks installed discovery permissions and bind |
+| A14 | Skill setup/migration and complete-package install | Partial | `tests/skills.test.ts` and npm artifact verification | H11 checks skills installation/removal, downloads, backups and real registration |
 
 ## Scenario coverage for stateful editing
 
 | Scenario | Automated assertion | Real-host assertion |
 |---|---|---|
-| Agent applies to an unchanged patch | plan, acknowledgement, revision, and verification baseline | H02 |
+| Agent applies to an unchanged patch | compact prepare receipt, acknowledgement, revision, and verification baseline | H02 |
 | Human edits after an agent apply | review clusters and structure tokens are derived from synthetic live evidence | H02 uses Max UI edits |
-| Agent adopts the human edit, then applies another DSL diff | stale-token and adopted-baseline behavior | H02 verifies that the human edit is preserved |
-| Broker dies or is force-restarted | lease recovery and old frontend termination | H04/H05 verify MCP-host recovery |
-| Diagnostic frontend outlives a failed/old broker | every status call refreshes; compatible replacement yields `RECONNECT_REQUIRED`; tool list remains diagnostic | H05 reconnects the MCP entry and checks full tools |
+| Agent adopts the human edit, then applies a source-ref edit | stale ref/token and adopted-baseline behavior | H02 verifies that the human edit is preserved |
+| Human edits after receipt preparation | native structure-token race rejects apply and consumes the receipt | H02 can repeat the race through the Max UI when this boundary changes |
+| Max-owned helper fails | owner-pipe EOF and mixed-version startup tests | H04/H05 confirm required Max restart; no automatic helper restart |
 | Max closes and reopens a saved patch | bridge disconnect behavior and state rekeying are unit tested | H03/H04 verify native registration and saved-path identity |
 
 ## What must not be called automated
@@ -50,9 +50,10 @@ not reliable CI gates yet:
 
 - Max window creation, dirty state, save dialogs, and native object placement;
 - Max Console severity/color and OS security prompts;
-- Codex's MCP-process restart control and user approval prompts;
+- native singleton lifetime, Max restart and user approval prompts;
 - Max package discovery when duplicate externals exist in search paths;
-- LAN firewall, address selection, and a second machine's route.
+- replacement of the active native package and Max's post-restart binary resolution;
+- Max-provided Node resolution on both macOS and Windows.
 
 Treat an agent-driven local run as **human evidence**, because a person still
 provides the application session, permissions, and interpretation.
@@ -62,7 +63,7 @@ provides the application session, permissions, and interpretation.
 Ranked by expected defect prevention rather than test count:
 
 1. Add a protocol-level fake Max client that runs longer mixed sequences:
-   register → inspect → human-edit event → reconcile → apply → disconnect →
+   register → inspect → human-edit event → review → prepare → apply → disconnect →
    reconnect. Existing tests cover these operations mostly in smaller groups.
 2. Run `npm run test:package` on Windows if npm `.cmd` entrypoint failures occur;
    the current CI smoke runs on Ubuntu while native artifacts build on both OSes.
@@ -76,7 +77,7 @@ Ranked by expected defect prevention rather than test count:
 
 - Every process-lifecycle or persistence bug gets a regression test at the
   lowest boundary that reproduces it.
-- Every new MCP mutation needs success, stale-target/token, disconnect/timeout,
+- Every new HTTP mutation needs success, stale-target/token, disconnect/timeout,
   and restart-persistence analysis. Not every cell requires a new test when a
   shared invariant already covers it.
 - Update this matrix and the [manual checklist](manual-test-checklist.md) when a

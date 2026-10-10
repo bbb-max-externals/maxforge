@@ -56,11 +56,17 @@ Use the returned ID/scope for subsequent actions; duplicate live IDs are rejecte
 
 ## Safe mutation
 
-1. Call `maxforge_help` (workflow), `maxforge_catalog`, then `maxforge_list_patches`.
+1. Discover action schemas; use `maxforge_help` (workflow) if unfamiliar. Confirm
+   custom definitions with `maxforge_catalog`, then call `maxforge_list_patches`.
 2. Copy patcherId/scope from the list, never from a title. Require versionCompatible.
-3. Inspect and review live edits. Preview complete desired DSL with compile_plan.
-4. Apply with the exact inspected structure token. Omitted managed objects are deleted.
-5. Verify acknowledgement and retain returned workingDsl. Save explicitly.
+3. Inspect and review live edits. Send complete `desiredDsl` once to
+   `maxforge_prepare_change`, or use retained `baseSourceRef` plus line edits.
+4. Require `canApply`, review destructive operations/warnings, and apply only
+   the one-time `receiptId` through `maxforge_apply_prepared_change`. Omitted
+   managed objects are deleted. A receipt must not be retried after failure.
+5. Verify acknowledgement revision and persistence, and retain returned
+   `sourceRef`. Use `maxforge_get_working_source` for bounded matches or complete
+   recovery source. Save explicitly.
 
 `versionCompatible` checks the native/helper pair in the installed package, not
 the agent's npm version. Help topics `recovery` and `safety` cover reconciliation,

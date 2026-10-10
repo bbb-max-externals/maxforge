@@ -118,6 +118,113 @@ describe("round-trip", () => {
     }
   });
 
+  it("preserves DSL object names through generated semantic box IDs", () => {
+    const source = `
+frequency_control = number
+carrier_oscillator = cycle~ 440
+frequency_control -> carrier_oscillator
+`;
+    const original = compile(parse(source).ast, db);
+    expect(original.success).toBe(true);
+
+    const dsl = decompile(original.output!);
+    expect(dsl).toContain("frequency_control = number");
+    expect(dsl).toContain("carrier_oscillator = cycle~ 440");
+    expect(dsl).toContain("frequency_control -> carrier_oscillator");
+  });
+
+  it("uses a valid Max varname when the box ID is only a default sequence", () => {
+    const patch = compile(parse("n = number").ast, db).output!;
+    patch.patcher.boxes[0].box.id = "obj-1";
+    patch.patcher.boxes[0].box.varname = "filter_cutoff";
+
+    const dsl = decompile(patch);
+    expect(dsl).toContain("filter_cutoff = number @varname filter_cutoff");
+  });
+
+  it("prefers a semantic box ID over a different Max varname", () => {
+    const patch = compile(parse("carrier_oscillator = cycle~ 440").ast, db).output!;
+    patch.patcher.boxes[0].box.varname = "legacy_name";
+
+    const dsl = decompile(patch);
+    expect(dsl).toContain(
+      "carrier_oscillator = cycle~ 440 @varname legacy_name"
+    );
+  });
+
+  it("deduplicates repeated Max varnames and keeps connections valid", () => {
+    const patch = compile(parse("a = number\nb = number\na -> b").ast, db).output!;
+    patch.patcher.boxes[0].box.id = "obj-1";
+    patch.patcher.boxes[0].box.varname = "shared_control";
+    patch.patcher.boxes[1].box.id = "obj-2";
+    patch.patcher.boxes[1].box.varname = "shared_control";
+    patch.patcher.lines[0].patchline.source[0] = "obj-1";
+    patch.patcher.lines[0].patchline.destination[0] = "obj-2";
+
+    const dsl = decompile(patch);
+    expect(dsl).toContain("shared_control = number");
+    expect(dsl).toContain("shared_control_2 = number");
+    expect(dsl).toContain("shared_control -> shared_control_2");
+    expect(parse(dsl).errors).toHaveLength(0);
+  });
+
+  it("reserves semantic IDs ahead of conflicting varname fallbacks", () => {
+    const patch = compile(parse("manual = number\nfilter_cutoff = number").ast, db).output!;
+    patch.patcher.boxes[0].box.id = "obj-1";
+    patch.patcher.boxes[0].box.varname = "filter_cutoff";
+
+    const dsl = decompile(patch);
+    expect(dsl).toContain("filter_cutoff_2 = number @varname filter_cutoff");
+    expect(dsl).toContain("filter_cutoff = number");
+  });
+
+  it("reserves varnames ahead of object-text inference regardless of box order", () => {
+    const patch = compile(parse("inferred = cycle~ 440\nmanual = number").ast, db).output!;
+    patch.patcher.boxes[0].box.id = "obj-1";
+    patch.patcher.boxes[1].box.id = "obj-2";
+    patch.patcher.boxes[1].box.varname = "cycle";
+
+    const dsl = decompile(patch);
+    expect(dsl).toContain("cycle_2 = cycle~ 440");
+    expect(dsl).toContain("cycle = number @varname cycle");
+  });
+
+  it("does not interpret managed ownership varnames as generic DSL names", () => {
+    const patch = compile(parse("n = cycle~ 440").ast, db).output!;
+    patch.patcher.boxes[0].box.id = "obj-1";
+    patch.patcher.boxes[0].box.varname = "maxforge_synth_obj_filter_cutoff";
+
+    const dsl = decompile(patch);
+    expect(dsl).toContain("cycle = cycle~ 440");
+    expect(dsl).not.toContain("maxforge_synth_obj_filter_cutoff =");
+  });
+
+  it("recovers semantic IDs inside nested patchers", () => {
+    const source = `
+signal_path = p inner {
+  source_in = inlet
+  processed_out = outlet
+  source_in -> processed_out
+}
+`;
+    const patch = compile(parse(source).ast, db).output!;
+
+    const dsl = decompile(patch);
+    expect(dsl).toContain("signal_path = p inner");
+    expect(dsl).toContain("source_in = inlet");
+    expect(dsl).toContain("processed_out = outlet");
+    expect(dsl).toContain("source_in -> processed_out");
+  });
+
+  it("does not mistake a default numeric Max box ID for a DSL name", () => {
+    const patch = compile(parse("n = number").ast, db).output!;
+    patch.patcher.boxes[0].box.id = "obj-1";
+
+    const dsl = decompile(patch);
+    expect(dsl).toContain("number = number");
+    expect(dsl).not.toContain("1 = number");
+  });
+
   it("preserves all line connections (basic_synth)", () => {
     const source = loadFixture("basic_synth.maxdsl");
     const { ast } = parse(source);
@@ -196,6 +303,16 @@ freq -> mt -> osc -> dac
     ).toHaveLength(1);
   });
 
+  it("rejects numeric-only names that collide with Max default box IDs", () => {
+    expect(parse("1 = number").errors).toEqual([
+      expect.objectContaining({ code: "E007", line: 1 }),
+    ]);
+    expect(parse("1osc = cycle~ 440").errors).toHaveLength(0);
+    expect(parse("fx = p 1 {\n  i = inlet\n  o = outlet\n}").errors).toEqual([
+      expect.objectContaining({ code: "E007", line: 1 }),
+    ]);
+  });
+
   it("parses patch declaration", () => {
     const source = `patch "Test" | "A test" | 800x600\nosc = cycle~ 440`;
     const { ast, errors } = parse(source);
@@ -247,6 +364,24 @@ a[1] -> b
     if (conn.type === "connection") {
       expect(conn.refs[0].outlet).toBe(1);
     }
+  });
+
+  it("parses inclusive port ranges without changing scalar port semantics", () => {
+    const { ast, errors } = parse(`source[0..3] -> destination[2..5]`);
+    expect(errors).toHaveLength(0);
+    expect(ast.statements[0]).toEqual({
+      type: "connection",
+      line: 1,
+      refs: [
+        { name: "source", range: [0, 3] },
+        { name: "destination", range: [2, 5] },
+      ],
+    });
+
+    const scalar = parse(`source[1:2] -> destination`).ast.statements[0];
+    expect(scalar).toMatchObject({
+      refs: [{ name: "source", outlet: 1, inlet: 2 }, { name: "destination" }],
+    });
   });
 
   it("handles comments and blank lines", () => {
@@ -367,6 +502,126 @@ a[4] -> b[3]
     expect(result.success).toBe(true);
     expect(result.output!.patcher.lines[0].patchline.source).toEqual(["obj-a", 4]);
     expect(result.output!.patcher.lines[0].patchline.destination).toEqual(["obj-b", 3]);
+  });
+
+  it("zip-connects inclusive outlet and inlet ranges", () => {
+    const source = `
+source = trigger b b b b
+destination = pack 0 0 0 0 0 0
+source[0..3] -> destination[2..5]
+`;
+    const { ast, errors } = parse(source);
+    expect(errors).toHaveLength(0);
+
+    const result = compile(ast, db);
+    expect(result.success).toBe(true);
+    expect(result.output!.patcher.lines.map(({ patchline }) => ({
+      source: patchline.source,
+      destination: patchline.destination,
+    }))).toEqual([
+      { source: ["obj-source", 0], destination: ["obj-destination", 2] },
+      { source: ["obj-source", 1], destination: ["obj-destination", 3] },
+      { source: ["obj-source", 2], destination: ["obj-destination", 4] },
+      { source: ["obj-source", 3], destination: ["obj-destination", 5] },
+    ]);
+  });
+
+  it("preserves outgoing:incoming semantics for scalar chain references", () => {
+    const { ast, errors } = parse(`
+source = button
+middle = gate 2
+destination = number
+source -> middle[1:1] -> destination
+`);
+    expect(errors).toHaveLength(0);
+    const result = compile(ast, db);
+    expect(result.success).toBe(true);
+    expect(result.output!.patcher.lines.map(({ patchline }) => ({
+      source: patchline.source,
+      destination: patchline.destination,
+    }))).toEqual([
+      { source: ["obj-source", 0], destination: ["obj-middle", 1] },
+      { source: ["obj-middle", 1], destination: ["obj-destination", 0] },
+    ]);
+  });
+
+  it("expands expressions before compiling port ranges", () => {
+    const source = `
+source = trigger b b b b
+destination = pack 0 0 0 0 0 0
+for upper in 3..3 {
+  source[0..\${upper}] -> destination[2..\${upper + 2}]
+}
+`;
+    const { ast, errors } = parse(source);
+    expect(errors).toHaveLength(0);
+    const result = compile(ast, db);
+    expect(result.success).toBe(true);
+    expect(result.output!.patcher.lines).toHaveLength(4);
+  });
+
+  it.each([
+    ["source[3..0] -> destination[2..5]", "Port ranges must be ascending"],
+    ["source[0..2] -> destination[2..5]", "Port ranges must have equal lengths"],
+    ["source[0..3] -> destination", "exactly two references"],
+    ["source[0..3] -> destination[2..5] -> third", "exactly two references"],
+  ])("rejects invalid port range mapping: %s", (connection, message) => {
+    const source = `
+source = trigger b b b b
+destination = pack 0 0 0 0 0 0
+third = number
+${connection}
+`;
+    const { ast, errors } = parse(source);
+    expect(errors).toHaveLength(0);
+    const result = compile(ast, db);
+    expect(result.success).toBe(false);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ code: "E010", line: 5 });
+    expect(result.errors[0].message).toContain(message);
+  });
+
+  it("rejects a port range above the per-statement expansion limit", () => {
+    const { ast, errors } = parse(`
+source = custom_source
+destination = custom_destination
+source[0..100000] -> destination[0..100000]
+`);
+    expect(errors).toHaveLength(0);
+    const result = compile(ast, db, true);
+    expect(result.success).toBe(false);
+    expect(result.errors).toEqual([expect.objectContaining({
+      code: "E010",
+      message: "Port range exceeds the 100000 connection limit",
+    })]);
+  });
+
+  it.each([
+    ["source[0..4] -> destination[0..4]", "E004"],
+    ["source[0..3] -> destination[1..4]", "E005"],
+  ])("validates every expanded range port: %s", (connection, code) => {
+    const { ast } = parse(`
+source = trigger b b b b
+destination = pack 0 0 0 0
+${connection}
+`);
+    const result = compile(ast, db);
+    expect(result.success).toBe(false);
+    expect(result.errors).toEqual([expect.objectContaining({ code })]);
+  });
+
+  it("deduplicates patchlines expanded from port ranges", () => {
+    const { ast } = parse(`
+source = trigger b b
+destination = pack 0 0
+source[0..1] -> destination[0..1]
+source[0..1] -> destination[0..1]
+`);
+    const result = compile(ast, db);
+    expect(result.success).toBe(true);
+    expect(result.output!.patcher.lines).toHaveLength(2);
+    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings.every((warning) => warning.code === "W001")).toBe(true);
   });
 
   it("emits patch declaration metadata into patcher JSON", () => {
@@ -1200,10 +1455,10 @@ describe("attributes", () => {
 
     const dsl = decompile(patch);
     expect(dsl).toContain(
-      "# maxforge omitted unsupported attribute @saved_object_attributes from number"
+      "# maxforge omitted unsupported attribute @saved_object_attributes from n"
     );
     expect(dsl).toContain(
-      "# maxforge omitted unsupported attribute @embedstate from number"
+      "# maxforge omitted unsupported attribute @embedstate from n"
     );
     expect(dsl).not.toContain("[object Object]");
     expect(parse(dsl).errors).toHaveLength(0);

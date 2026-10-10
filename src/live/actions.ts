@@ -55,24 +55,21 @@ const warningSchema = z.object({
   line: z.number().int().positive().optional(),
 });
 
+const patchOperationSchema = z.object({
+  op: z.enum(["disconnect", "delete", "create", "set", "connect"]),
+  targetPath: z.array(z.string()),
+}).passthrough();
+
 const patchPlanSchema = z.object({
   protocolVersion: z.literal(1),
   scope: scopeSchema,
   baseRevision: revisionSchema,
   targetRevision: revisionSchema,
   baseStructureToken: structureTokenSchema.optional(),
-  operations: z.array(
-    z.object({
-      op: z.enum(["disconnect", "delete", "create", "set", "connect"]),
-      targetPath: z.array(z.string()),
-    }).passthrough()
-  ).describe("Ordered native Max mutations; review these before apply"),
-  rollbackOperations: z.array(
-    z.object({
-      op: z.enum(["disconnect", "delete", "create", "set", "connect"]),
-      targetPath: z.array(z.string()),
-    }).passthrough()
-  ).optional().describe(
+  operations: z.array(patchOperationSchema).describe(
+    "Ordered native Max mutations; review these before apply"
+  ),
+  rollbackOperations: z.array(patchOperationSchema).optional().describe(
     "Reverse ordered mutations used by maxforge after a partial apply failure"
   ),
 });
@@ -186,36 +183,86 @@ const helpResultSchema = z.object({
   relatedTools: z.array(z.string()),
 });
 
-const dslRequestSchema = z.object({
+const sourceRefSchema = revisionSchema.describe(
+  "SHA-256 reference to an exact retained complete working source"
+);
+
+const receiptIdSchema = z.string().uuid().describe(
+  "One-time prepared change receipt returned by maxforge_prepare_change"
+);
+
+const prepareChangeRequestSchema = z.object({
   patcherId: patcherIdSchema.describe(
     "Registered target Max patch ID copied from maxforge_list_patches; never infer it from a title"
-  ),
-  desiredDsl: z.string().min(1).describe(
-    "Complete desired maxforge DSL state. Managed objects omitted from this source are deleted."
   ),
   scope: scopeSchema.describe(
     "Exact managed scope advertised by the selected patch"
   ),
-  currentDsl: z
-    .string()
-    .optional()
-    .describe(
-      "Exact previous complete DSL. Normally restored from persistent service state; required only when persistence was disabled or the matching state file is unavailable. Never guess or substitute empty state."
+  desiredDsl: z.string().min(1).optional().describe(
+    "Complete desired maxforge DSL state, sent once for a new source or broad rewrite"
+  ),
+  baseSourceRef: sourceRefSchema.optional().describe(
+    "Exact retained source to edit without retransmitting the complete DSL"
+  ),
+  edits: z.array(z.object({
+    startLine: z.number().int().positive().describe(
+      "1-based inclusive start boundary"
     ),
-});
-
-const applyDslRequestSchema = dslRequestSchema.extend({
+    endLine: z.number().int().positive().describe(
+      "1-based exclusive end boundary; equal to startLine for insertion"
+    ),
+    replacement: z.string(),
+  })).min(1).max(64).optional(),
+  currentDsl: z.string().optional().describe(
+    "Recovery-only exact previous complete DSL when retained service state is unavailable"
+  ),
+  currentSourceRef: sourceRefSchema.optional().describe(
+    "Retained exact current source to use without retransmitting currentDsl"
+  ),
   manualChanges: z
     .enum(["reject", "merge"])
     .optional()
     .describe(
-      "How to handle managed live edits. Defaults to reject. Use merge only after maxforge_reconcile_patch reports canApply=true for the same desired DSL."
+      "Defaults to reject. Use merge only after reviewing managed live edits."
     ),
-  expectedStructureToken: structureTokenSchema
-    .optional()
-    .describe(
-      "Exact token from the latest maxforge_inspect_patch or maxforge_reconcile_patch result for this target. Reuses that observation instead of requesting the same full snapshot again; Max still recomputes and validates the token immediately before mutation."
-    ),
+  expectedStructureToken: structureTokenSchema.optional().describe(
+    "Exact token from the latest inspection or live-change review for this target. When omitted, preparation requests one fresh inspection."
+  ),
+}).superRefine((value, context) => {
+  const inline = value.desiredDsl !== undefined;
+  const sourceEdit = value.baseSourceRef !== undefined || value.edits !== undefined;
+  if (inline === sourceEdit) {
+    context.addIssue({
+      code: "custom",
+      message: "Provide either desiredDsl or both baseSourceRef and edits",
+    });
+  }
+  if (sourceEdit && (value.baseSourceRef === undefined || value.edits === undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: "baseSourceRef and edits must be provided together",
+    });
+  }
+  if (value.currentDsl !== undefined && value.currentSourceRef !== undefined) {
+    context.addIssue({
+      code: "custom",
+      message: "Provide currentDsl or currentSourceRef, not both",
+    });
+  }
+  if (sourceEdit && (value.currentDsl !== undefined || value.currentSourceRef !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: "Source-edit mode already uses baseSourceRef as exact currentDsl",
+    });
+  }
+});
+
+const operationCountsSchema = z.object({
+  disconnect: z.number().int().nonnegative(),
+  delete: z.number().int().nonnegative(),
+  create: z.number().int().nonnegative(),
+  set: z.number().int().nonnegative(),
+  connect: z.number().int().nonnegative(),
 });
 
 const patchInspectionSummarySchema = z.object({
@@ -252,6 +299,33 @@ const reconciliationConflictSchema = z.object({
   field: z.string().optional(),
   message: z.string(),
 }).passthrough();
+
+const preparedChangeSchema = z.object({
+  canApply: z.boolean(),
+  patcherId: patcherIdSchema,
+  scope: scopeSchema,
+  receiptId: receiptIdSchema.optional(),
+  baseRevision: revisionSchema.optional(),
+  targetRevision: revisionSchema.optional(),
+  structureToken: structureTokenSchema,
+  operationCount: z.number().int().nonnegative().optional(),
+  operationCounts: operationCountsSchema.optional(),
+  destructiveOperations: z.array(patchOperationSchema).optional(),
+  replacements: z.array(z.object({
+    targetPath: z.array(z.string()),
+    id: z.string(),
+  })).optional(),
+  comparisonAvailable: z.boolean().optional(),
+  managedChangeCount: z.number().int().nonnegative().optional(),
+  unmanagedChangeCount: z.number().int().nonnegative().optional(),
+  conflicts: z.array(reconciliationConflictSchema),
+  warnings: z.array(warningSchema),
+  sourceRef: sourceRefSchema.optional(),
+  sourceCharacters: z.number().int().nonnegative().optional(),
+  workingDslRequiredAsCurrent: z.boolean().optional(),
+  manualChangesMerged: z.number().int().nonnegative().optional(),
+  prepareMs: z.number().nonnegative(),
+});
 
 const snapshotChangeSchema = z.object({
   kind: z.enum([
@@ -293,7 +367,7 @@ const editReviewSchema = z.object({
     objectIds: z.array(z.string()),
     changeIndexes: z.array(z.number().int().nonnegative()),
     summary: z.string(),
-  })),
+  })).optional(),
   editClusters: z.array(z.object({
     id: z.string(),
     targetPath: z.array(z.string()),
@@ -332,7 +406,7 @@ const liveChangeReviewSchema = z.object({
   comparisonAvailable: z.boolean(),
   managedChangeCount: z.number().int().nonnegative(),
   unmanagedChangeCount: z.number().int().nonnegative(),
-  changes: z.array(snapshotChangeSchema),
+  changes: z.array(snapshotChangeSchema).optional(),
   review: editReviewSchema,
   structureToken: structureTokenSchema,
   acknowledgedRevision: revisionSchema.optional(),
@@ -341,7 +415,23 @@ const liveChangeReviewSchema = z.object({
   adoptionBlockedReason: z.string().optional(),
   conflicts: z.array(reconciliationConflictSchema),
   proposedWorkingDsl: z.string().optional(),
-  snapshot: snapshotEventSchema,
+  snapshot: snapshotEventSchema.optional(),
+});
+
+const adoptedChangeSchema = z.object({
+  patcherId: patcherIdSchema,
+  scope: scopeSchema,
+  previousRevision: revisionSchema,
+  adoptedRevision: revisionSchema,
+  revisionAdvanced: z.boolean(),
+  acknowledgement: acknowledgementSchema.optional(),
+  structureToken: structureTokenSchema,
+  managedChangeCount: z.number().int().nonnegative(),
+  unmanagedChangeCount: z.number().int().nonnegative(),
+  statePersisted: z.boolean(),
+  stateWarning: z.string().optional(),
+  sourceRef: sourceRefSchema,
+  sourceCharacters: z.number().int().nonnegative(),
 });
 
 const pendingApplyInspectionSchema = z.object({
@@ -469,12 +559,12 @@ const HELP_CONTENT = {
       "When edit observation is supported, call maxforge_get_live_edit_history to inspect ordered snapshot evidence before interpreting the current aggregate diff.",
       "If live edits exist, call maxforge_review_live_changes. Its signals are evidence of what changed, not certainty about why the human changed it.",
       "Interpret related changes together using review.editClusters. Treat interpretationRisks as prompts for reasoning, and use interpretationGuidance.clarificationRecommendedFor to identify clusters that may require a human question.",
-      "To accept the current managed graph as the baseline, call maxforge_adopt_live_changes with the exact reviewed structure token. If a concrete next DSL is already ready, use maxforge_reconcile_patch instead and require canApply=true.",
-      "After adoption, replace the working source with the returned workingDsl before compiling the next desired state.",
-      "Send the complete desired DSL to maxforge_compile_plan and review every operation and warning.",
-      "Send the same target and complete desired DSL to maxforge_apply_dsl. Set manualChanges to merge only after reconciliation succeeds.",
+      "To accept the current managed graph as the baseline, call maxforge_adopt_live_changes with the exact reviewed structure token. If a concrete next DSL is already ready, prepare it with manualChanges set to merge and require canApply=true.",
+      "After adoption, retain returned sourceRef and query or edit that service-held source instead of copying complete DSL through agent context.",
+      "Send complete desired DSL once to maxforge_prepare_change with the exact inspected structure token. Review warnings, every destructive operation, and every replacement; bulk create/connect/rollback operations remain behind the receipt.",
+      "Apply only the returned receiptId with maxforge_apply_prepared_change. Do not resend or recompile the DSL.",
       "Treat native mutation as acknowledged only when acknowledgement.revision equals targetRevision. When verification is present, require verification.revision to match; when it is absent or baselineCaptured is false, inspect before further mutation instead of retrying the apply.",
-      "After every apply, retain returned workingDsl as the next complete source. Ordinary no-merge apply preserves the submitted authored DSL, including for/if structure; adoption and merge may return explicit graph-derived DSL. While workingDslRequiredAsCurrent is true, include it as currentDsl in every preview and apply request until a successful apply realigns intent state.",
+      "After apply, retain sourceRef rather than copying complete DSL through agent context. Query only matching source regions for local edits and request full source only for broad rewrites or recovery. While workingDslRequiredAsCurrent is true, pass currentSourceRef to the next inline prepare call, or use that sourceRef as baseSourceRef for line edits, until a successful apply realigns intent state.",
       "Use maxforge_save_patch explicitly after successful mutation; apply changes live state but does not save the document.",
     ],
     rules: [
@@ -497,9 +587,9 @@ const HELP_CONTENT = {
       "maxforge_get_live_edit_history",
       "maxforge_review_live_changes",
       "maxforge_adopt_live_changes",
-      "maxforge_reconcile_patch",
-      "maxforge_compile_plan",
-      "maxforge_apply_dsl",
+      "maxforge_prepare_change",
+      "maxforge_apply_prepared_change",
+      "maxforge_get_working_source",
       "maxforge_save_patch",
     ],
   },
@@ -518,9 +608,9 @@ const HELP_CONTENT = {
       "If inspect reports live changes, call maxforge_review_live_changes and treat its classified signals as evidence rather than intent.",
       "Use maxforge_get_live_edit_history when operation order or intermediate states could change the interpretation; account for droppedEvents and comparisonBasis.",
       "If saved-path warnings remain ambiguous, inspect both identities with maxforge_get_patch_history_identity. Only after the human confirms the relationship may you close the source and call maxforge_resolve_patch_history_identity.",
-      "If accepted managed edits should become the new baseline, call maxforge_adopt_live_changes with the exact reviewed structure token, then replace the working source with its returned workingDsl.",
-      "If a concrete next desired DSL is ready, call maxforge_reconcile_patch instead.",
-      "If reconciliation reports canApply=true, apply the same DSL with manualChanges set to merge. Resolve reported conflicts explicitly instead of forcing a winner.",
+      "If accepted managed edits should become the new baseline, call maxforge_adopt_live_changes with the exact reviewed structure token, then retain its sourceRef.",
+      "If a concrete next desired DSL is ready, call maxforge_prepare_change with manualChanges set to merge instead.",
+      "If preparation reports canApply=true, apply its receipt. Resolve reported conflicts explicitly instead of forcing a winner.",
       "After a timeout or transport error, call maxforge_status and maxforge_inspect_patch before deciding whether another apply is safe.",
       "If baselineCaptured is false, the apply still succeeded; do not repeat it solely to obtain a baseline.",
       "A dirty patch can only be closed by explicitly setting discard=true. Save it first if the changes must survive.",
@@ -545,8 +635,8 @@ const HELP_CONTENT = {
       "maxforge_erase_project_history",
       "maxforge_review_live_changes",
       "maxforge_adopt_live_changes",
-      "maxforge_reconcile_patch",
-      "maxforge_apply_dsl",
+      "maxforge_prepare_change",
+      "maxforge_apply_prepared_change",
       "maxforge_save_patch",
       "maxforge_close_patch",
     ],
@@ -556,7 +646,7 @@ const HELP_CONTENT = {
     steps: [
       "Select targets only from maxforge_list_patches.",
       "Require versionCompatible=true before every mutation; version mismatch is diagnostic-only until Max is restarted with the matching external.",
-      "Preview every nontrivial change with maxforge_compile_plan.",
+      "Prepare every nontrivial change with maxforge_prepare_change and review its compact destructive summary.",
       "Inspect after apply and separate managed from unmanaged changes.",
       "Review live changes before attributing intent or accepting them as desired state.",
     ],
@@ -571,7 +661,7 @@ const HELP_CONTENT = {
     relatedTools: [
       "maxforge_catalog",
       "maxforge_list_patches",
-      "maxforge_compile_plan",
+      "maxforge_prepare_change",
       "maxforge_inspect_patch",
       "maxforge_review_live_changes",
       "maxforge_adopt_live_changes",
@@ -599,7 +689,7 @@ export function createMaxforgeActions(
     {
       title: "Maxforge service workflow help",
       description:
-        "Return agent-oriented instructions for safe live patch workflow, setup, recovery, or safety. Call this before the first mutation and whenever an apply is rejected or ambiguous.",
+        "Return fallback agent-oriented instructions for safe live patch workflow, setup, recovery, or safety. Call it when the compact receipt workflow is unavailable or unfamiliar, and whenever an apply is rejected or ambiguous; omit the redundant call during a normal skill-guided mutation.",
       inputSchema: z.object({
         topic: helpTopicSchema.optional().describe(
           "Help topic; defaults to workflow"
@@ -1060,6 +1150,12 @@ export function createMaxforgeActions(
       inputSchema: z.object({
         patcherId: patcherIdSchema.describe("Registered target Max patch ID"),
         scope: scopeSchema.describe("Exact managed scope of the target patch"),
+        detail: z.enum(["summary", "full"])
+          .optional()
+          .default("summary")
+          .describe(
+            "summary omits the full snapshot, raw changes, signal duplicates, and proposed complete DSL; full returns all evidence"
+          ),
       }),
       outputSchema: liveChangeReviewSchema,
       annotations: {
@@ -1068,10 +1164,33 @@ export function createMaxforgeActions(
         idempotentHint: true,
       },
     },
-    async ({ patcherId, scope }) => {
+    async ({ patcherId, scope, detail }) => {
       try {
         const result = await options.service.reviewLiveChanges(patcherId, scope);
-        return toolResult({ patcherId, scope, ...result });
+        if (detail === "full") {
+          return toolResult({ patcherId, scope, ...result });
+        }
+        const { signals: _signals, ...compactReview } = result.review;
+        return toolResult({
+          patcherId,
+          scope,
+          comparisonAvailable: result.comparisonAvailable,
+          managedChangeCount: result.managedChangeCount,
+          unmanagedChangeCount: result.unmanagedChangeCount,
+          review: compactReview,
+          structureToken: result.structureToken,
+          ...(result.acknowledgedRevision
+            ? { acknowledgedRevision: result.acknowledgedRevision }
+            : {}),
+          ...(result.observedManagedRevision
+            ? { observedManagedRevision: result.observedManagedRevision }
+            : {}),
+          canAdopt: result.canAdopt,
+          ...(result.adoptionBlockedReason
+            ? { adoptionBlockedReason: result.adoptionBlockedReason }
+            : {}),
+          conflicts: result.conflicts,
+        });
       } catch (error) {
         return toolError(error);
       }
@@ -1251,7 +1370,7 @@ export function createMaxforgeActions(
     {
       title: "Adopt reviewed human edits",
       description:
-        "Accept the exact reviewed live structure as the next managed and agent-intent baseline without replaying the human's structural edits. Requires the structure token returned by maxforge_review_live_changes. Safe managed edits advance the native revision with a zero-operation, token-bound plan; conflicts and unrepresentable protocol-v1 patch-cord metadata are rejected. Returns lossless workingDsl for the next desired-state edit.",
+        "Accept the exact reviewed live structure as the next managed and agent-intent baseline without replaying the human's structural edits. Requires the structure token returned by maxforge_review_live_changes. Safe managed edits advance the native revision with a zero-operation, token-bound plan; conflicts and unrepresentable protocol-v1 patch-cord metadata are rejected. Returns a retained source reference instead of injecting complete DSL into agent context.",
       inputSchema: z.object({
         patcherId: patcherIdSchema.describe("Registered target Max patch ID"),
         scope: scopeSchema.describe("Exact managed scope of the target patch"),
@@ -1259,15 +1378,7 @@ export function createMaxforgeActions(
           "Exact structureToken returned by the immediately preceding live-change review"
         ),
       }),
-      outputSchema: liveChangeReviewSchema.extend({
-        previousRevision: revisionSchema,
-        adoptedRevision: revisionSchema,
-        revisionAdvanced: z.boolean(),
-        acknowledgement: acknowledgementSchema.optional(),
-        statePersisted: z.boolean(),
-        stateWarning: z.string().optional(),
-        workingDsl: z.string(),
-      }),
+      outputSchema: adoptedChangeSchema,
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -1277,10 +1388,26 @@ export function createMaxforgeActions(
     async (request) => {
       try {
         const result = await options.service.adoptLiveChanges(request);
+        const source = options.service.getWorkingSource(
+          request.patcherId,
+          request.scope
+        );
         return toolResult({
           patcherId: request.patcherId,
           scope: request.scope,
-          ...result,
+          previousRevision: result.previousRevision,
+          adoptedRevision: result.adoptedRevision,
+          revisionAdvanced: result.revisionAdvanced,
+          ...(result.acknowledgement
+            ? { acknowledgement: result.acknowledgement }
+            : {}),
+          structureToken: result.structureToken,
+          managedChangeCount: result.managedChangeCount,
+          unmanagedChangeCount: result.unmanagedChangeCount,
+          statePersisted: result.statePersisted,
+          ...(result.stateWarning ? { stateWarning: result.stateWarning } : {}),
+          sourceRef: source.sourceRef,
+          sourceCharacters: source.sourceCharacters,
         });
       } catch (error) {
         return toolError(error);
@@ -1289,25 +1416,13 @@ export function createMaxforgeActions(
   );
 
   server.registerTool(
-    "maxforge_reconcile_patch",
+    "maxforge_prepare_change",
     {
-      title: "Reconcile live Max edits with desired DSL",
+      title: "Prepare a compact token-bound Max change",
       description:
-        "Preview a three-way merge of the agent's previous desired graph, the current live patch, and complete next desired DSL. Returns structured conflicts and never mutates Max.",
-      inputSchema: dslRequestSchema,
-      outputSchema: z.object({
-        patcherId: patcherIdSchema,
-        scope: scopeSchema,
-        canApply: z.boolean(),
-        comparisonAvailable: z.boolean(),
-        managedChangeCount: z.number().int().nonnegative(),
-        unmanagedChangeCount: z.number().int().nonnegative(),
-        conflicts: z.array(reconciliationConflictSchema),
-        plan: patchPlanSchema.optional(),
-        operationCount: z.number().int().nonnegative(),
-        warnings: z.array(warningSchema),
-        structureToken: structureTokenSchema,
-      }),
+        "Compile complete desired DSL once and retain the full native plan behind a one-time receipt. Returns compact operation counts, every delete/disconnect, replacements, warnings, and merge conflicts without returning bulk create/connect/rollback operations. Set manualChanges=merge only after reviewing live edits.",
+      inputSchema: prepareChangeRequestSchema,
+      outputSchema: preparedChangeSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -1316,21 +1431,41 @@ export function createMaxforgeActions(
     },
     async (request) => {
       try {
-        const result = await options.service.reconcilePlan(request);
-        const response = {
-          patcherId: request.patcherId,
-          scope: request.scope,
-          canApply: result.canApply,
-          comparisonAvailable: result.comparisonAvailable,
-          managedChangeCount: result.managedChangeCount,
-          unmanagedChangeCount: result.unmanagedChangeCount,
-          conflicts: result.conflicts,
-          ...(result.plan ? { plan: result.plan } : {}),
-          operationCount: result.plan?.operations.length ?? 0,
-          warnings: result.warnings,
-          structureToken: result.structureToken,
-        };
-        return toolResult(response, responseWithout(response, ["plan"]));
+        if (request.baseSourceRef !== undefined && request.edits !== undefined) {
+          return toolResult({
+            ...await options.service.prepareSourceEdit({
+              patcherId: request.patcherId,
+              scope: request.scope,
+              baseSourceRef: request.baseSourceRef,
+              edits: request.edits,
+              manualChanges: request.manualChanges,
+              expectedStructureToken: request.expectedStructureToken,
+              catalogDigest: options.getCatalog().digest,
+            }),
+          });
+        }
+        let currentDsl = request.currentDsl;
+        if (request.currentSourceRef !== undefined) {
+          currentDsl = options.service.getWorkingSource(
+            request.patcherId,
+            request.scope,
+            request.currentSourceRef
+          ).source;
+        }
+        if (request.desiredDsl === undefined) {
+          throw new Error("desiredDsl is required outside source-edit mode");
+        }
+        return toolResult({
+          ...await options.service.prepareChange({
+            patcherId: request.patcherId,
+            scope: request.scope,
+            desiredDsl: request.desiredDsl,
+            ...(currentDsl !== undefined ? { currentDsl } : {}),
+            manualChanges: request.manualChanges,
+            expectedStructureToken: request.expectedStructureToken,
+            catalogDigest: options.getCatalog().digest,
+          }),
+        });
       } catch (error) {
         return toolError(error);
       }
@@ -1338,46 +1473,14 @@ export function createMaxforgeActions(
   );
 
   server.registerTool(
-    "maxforge_compile_plan",
+    "maxforge_apply_prepared_change",
     {
-      title: "Compile maxforge patch plan",
+      title: "Apply one prepared Max change",
       description:
-        "Preview the ordered diff from current managed state to complete desired DSL without mutating Max. Review destructive operations and warnings before apply.",
-      inputSchema: dslRequestSchema,
+        "Consume one token-bound receipt returned by maxforge_prepare_change, apply its retained plan without retransmitting or recompiling DSL, and wait for exact revision acknowledgement. The receipt is invalidated by catalog/revision changes and consumed before native mutation. Do not retry a timeout or warning blindly.",
+      inputSchema: z.object({ receiptId: receiptIdSchema }),
       outputSchema: z.object({
-        plan: patchPlanSchema,
-        operationCount: z.number().int().nonnegative(),
-        warnings: z.array(warningSchema),
-      }),
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-      },
-    },
-    async (request) => {
-      try {
-        const result = options.service.compilePlan(request);
-        const response = {
-          plan: result.plan,
-          operationCount: result.plan.operations.length,
-          warnings: result.warnings,
-        };
-        return toolResult(response, responseWithout(response, ["plan"]));
-      } catch (error) {
-        return toolError(error);
-      }
-    }
-  );
-
-  server.registerTool(
-    "maxforge_apply_dsl",
-    {
-      title: "Apply desired maxforge DSL",
-      description:
-        "Apply complete desired DSL to one explicit patcherId and wait for exact revision acknowledgement. Do not retry timeouts or baselineCaptured=false blindly; inspect live state first.",
-      inputSchema: applyDslRequestSchema,
-      outputSchema: z.object({
+        receiptId: receiptIdSchema,
         patcherId: patcherIdSchema,
         scope: scopeSchema,
         baseRevision: revisionSchema,
@@ -1390,7 +1493,8 @@ export function createMaxforgeActions(
         manualChangesMerged: z.number().int().nonnegative(),
         statePersisted: z.boolean(),
         stateWarning: z.string().optional(),
-        workingDsl: z.string(),
+        sourceRef: sourceRefSchema,
+        sourceCharacters: z.number().int().nonnegative(),
         workingDslRequiredAsCurrent: z.boolean(),
         timings: applyDslTimingsSchema,
         warnings: z.array(warningSchema),
@@ -1398,41 +1502,86 @@ export function createMaxforgeActions(
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
+        idempotentHint: false,
+      },
+    },
+    async ({ receiptId }) => {
+      try {
+        return toolResult({
+          ...await options.service.applyPreparedChange({
+            receiptId,
+            catalogDigest: options.getCatalog().digest,
+          }),
+        });
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "maxforge_get_working_source",
+    {
+      title: "Read an exact retained working DSL source",
+      description:
+        "Fetch the complete revision-aligned DSL only when it is actually needed for authoring or recovery. Use sourceRef from apply/adopt results to reject stale reads; ordinary status and apply responses deliberately omit the full source.",
+      inputSchema: z.object({
+        patcherId: patcherIdSchema,
+        scope: scopeSchema,
+        sourceRef: sourceRefSchema.optional(),
+        detail: z.enum(["metadata", "matches", "full"])
+          .optional()
+          .default("metadata"),
+        queries: z.array(z.string().min(1)).min(1).max(20).optional().describe(
+          "Exact DSL names or text fragments to locate when detail=matches"
+        ),
+        contextLines: z.number().int().min(0).max(5).optional().default(1),
+      }),
+      outputSchema: z.object({
+        patcherId: patcherIdSchema,
+        scope: scopeSchema,
+        sourceRef: sourceRefSchema,
+        sourceCharacters: z.number().int().nonnegative(),
+        lineCount: z.number().int().positive(),
+        matchCount: z.number().int().nonnegative().optional(),
+        snippets: z.array(z.object({
+          startLine: z.number().int().positive(),
+          endLineExclusive: z.number().int().positive(),
+          source: z.string(),
+        })).optional(),
+        source: z.string().optional(),
+      }),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
         idempotentHint: true,
       },
     },
-    async (request) => {
+    async ({ patcherId, scope, sourceRef, detail, queries, contextLines }) => {
       try {
-        const result = await options.service.applyDsl(request);
-        const response = {
-          patcherId: request.patcherId,
-          scope: result.plan.scope,
-          baseRevision: result.plan.baseRevision,
-          targetRevision: result.plan.targetRevision,
-          operationCount: result.plan.operations.length,
-          acknowledgement: result.acknowledgement,
-          baselineCaptured: result.baselineCaptured,
-          ...(result.verification ? { verification: result.verification } : {}),
-          manualChangesMerged: result.manualChangesMerged,
-          statePersisted: result.statePersisted,
-          workingDsl: result.workingDsl,
-          workingDslRequiredAsCurrent: result.workingDslRequiredAsCurrent,
-          timings: result.timings,
-          ...(result.baselineWarning
-            ? { baselineWarning: result.baselineWarning }
-            : {}),
-          ...(result.stateWarning
-            ? { stateWarning: result.stateWarning }
-            : {}),
-          warnings: result.warnings,
-        };
-        return toolResult(
-          response,
-          {
-            ...responseWithout(response, ["workingDsl"]),
-            workingDslCharacters: result.workingDsl.length,
-          }
+        const result = options.service.getWorkingSource(
+          patcherId,
+          scope,
+          sourceRef
         );
+        const metadata = {
+          patcherId: result.patcherId,
+          scope: result.scope,
+          sourceRef: result.sourceRef,
+          sourceCharacters: result.sourceCharacters,
+          lineCount: result.lineCount,
+        };
+        if (detail === "full") return toolResult({ ...result });
+        if (detail === "matches") {
+          if (!queries) {
+            throw new Error("queries are required when detail is matches");
+          }
+          return toolResult({
+            ...metadata,
+            ...sourceSnippets(result.source, queries, contextLines),
+          });
+        }
+        return toolResult(metadata);
       } catch (error) {
         return toolError(error);
       }
@@ -1481,6 +1630,45 @@ function responseWithout(
   const result = { ...value };
   for (const key of keys) delete result[key];
   return result;
+}
+
+function sourceSnippets(
+  source: string,
+  queries: readonly string[],
+  contextLines: number
+): {
+  matchCount: number;
+  snippets: Array<{
+    startLine: number;
+    endLineExclusive: number;
+    source: string;
+  }>;
+} {
+  const lines = source.split("\n");
+  const matchingLines = lines
+    .map((line, index) => queries.some((query) => line.includes(query)) ? index : -1)
+    .filter((index) => index >= 0);
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const index of matchingLines) {
+    const next = {
+      start: Math.max(0, index - contextLines),
+      end: Math.min(lines.length, index + contextLines + 1),
+    };
+    const previous = ranges.at(-1);
+    if (previous && next.start <= previous.end) {
+      previous.end = Math.max(previous.end, next.end);
+    } else {
+      ranges.push(next);
+    }
+  }
+  return {
+    matchCount: matchingLines.length,
+    snippets: ranges.map(({ start, end }) => ({
+      startLine: start + 1,
+      endLineExclusive: end + 1,
+      source: lines.slice(start, end).join("\n"),
+    })),
+  };
 }
 
 function toolError(error: unknown) {

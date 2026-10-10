@@ -25,8 +25,8 @@ it does not execute this workflow or uninstall anything automatically.
    [bbb-max-externals/maxforge Releases](https://github.com/bbb-max-externals/maxforge/releases)
    (API: `https://api.github.com/repos/bbb-max-externals/maxforge/releases/latest`).
    Honor a user-selected release; otherwise select the latest published release.
-   Record its tag and asset URLs. Do not invent a version or asset URL: archives
-   may be named `maxforge.zip` or `maxforge-v<VERSION>.zip`.
+   Record its tag and asset URLs. Require the versioned release asset
+   `maxforge-v<VERSION>.zip`; do not invent URLs or use commit-named CI archives.
 2. Download the Max package ZIP and its matching `.sha256` asset from that same
    release into a fresh temporary directory. Verify the archive's SHA-256 against
    the supplied checksum before extraction. A mismatch or missing checksum is a
@@ -45,9 +45,12 @@ it does not execute this workflow or uninstall anything automatically.
    stop and report that a new-format release is needed. Never substitute the old
    MCP setup or claim installation succeeded. Do not build from source unless
    the user requests a development build.
-4. Verify the macOS bundle's signature with `codesign --verify --deep --strict`
-   and its stapled notarization ticket with `xcrun stapler validate`. Report
-   failures; do not strip quarantine, disable Gatekeeper, or re-sign a download.
+4. Verify the macOS bundle with `codesign --verify --deep --strict` and inspect
+   its Developer ID signature. Confirm the selected official release's archive
+   passed CI notarization; a checksum or valid signature alone does not prove
+   notarization. Max `.mxo` bundles do not support stapling, so do not require
+   `stapler validate` on them. Report verification failures; do not strip
+   quarantine, disable Gatekeeper, or re-sign a download.
 5. Place the entire extracted package as `maxforge` inside the intended user's
    Max Packages directory. Defaults are `~/Documents/Max 9/Packages` on macOS
    and the user's Documents folder followed by `Max 9\Packages` on Windows.

@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import type { CompileWarning } from "../core/types.js";
 import {
@@ -61,6 +62,112 @@ export interface ApplyDslRequest extends CompilePlanRequest {
   readonly expectedStructureToken?: string;
 }
 
+export interface PrepareChangeRequest extends ApplyDslRequest {
+  readonly catalogDigest: string;
+}
+
+export interface ApplyPreparedChangeRequest {
+  readonly receiptId: string;
+  readonly catalogDigest: string;
+}
+
+export interface WorkingSourceEdit {
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly replacement: string;
+}
+
+export interface PrepareSourceEditRequest {
+  readonly patcherId: string;
+  readonly scope: string;
+  readonly baseSourceRef: string;
+  readonly edits: readonly WorkingSourceEdit[];
+  readonly manualChanges?: "reject" | "merge";
+  readonly expectedStructureToken?: string;
+  readonly catalogDigest: string;
+}
+
+export interface PreparedOperationCounts {
+  readonly disconnect: number;
+  readonly delete: number;
+  readonly create: number;
+  readonly set: number;
+  readonly connect: number;
+}
+
+export interface PreparedReplacement {
+  readonly targetPath: readonly string[];
+  readonly id: string;
+}
+
+export interface PreparedChangeResult {
+  readonly canApply: true;
+  readonly receiptId: string;
+  readonly patcherId: string;
+  readonly scope: string;
+  readonly baseRevision: string;
+  readonly targetRevision: string;
+  readonly structureToken: string;
+  readonly operationCount: number;
+  readonly operationCounts: PreparedOperationCounts;
+  readonly destructiveOperations: ReadonlyArray<PatchPlan["operations"][number]>;
+  readonly replacements: readonly PreparedReplacement[];
+  readonly warnings: readonly CompileWarning[];
+  readonly sourceRef: string;
+  readonly sourceCharacters: number;
+  readonly workingDslRequiredAsCurrent: boolean;
+  readonly manualChangesMerged: number;
+  readonly prepareMs: number;
+  readonly conflicts: readonly [];
+}
+
+export interface BlockedPreparedChangeResult {
+  readonly canApply: false;
+  readonly patcherId: string;
+  readonly scope: string;
+  readonly comparisonAvailable: boolean;
+  readonly managedChangeCount: number;
+  readonly unmanagedChangeCount: number;
+  readonly conflicts: readonly PatchReconciliationConflict[];
+  readonly warnings: readonly CompileWarning[];
+  readonly structureToken: string;
+  readonly prepareMs: number;
+}
+
+export type PrepareChangeOutcome =
+  | PreparedChangeResult
+  | BlockedPreparedChangeResult;
+
+export interface ApplyPreparedChangeResult {
+  readonly receiptId: string;
+  readonly patcherId: string;
+  readonly scope: string;
+  readonly baseRevision: string;
+  readonly targetRevision: string;
+  readonly operationCount: number;
+  readonly acknowledgement: MaxforgeAppliedEvent;
+  readonly warnings: readonly CompileWarning[];
+  readonly baselineCaptured: boolean;
+  readonly baselineWarning?: string;
+  readonly verification?: PostApplyVerification;
+  readonly manualChangesMerged: number;
+  readonly statePersisted: boolean;
+  readonly stateWarning?: string;
+  readonly sourceRef: string;
+  readonly sourceCharacters: number;
+  readonly workingDslRequiredAsCurrent: boolean;
+  readonly timings: ApplyDslTimings;
+}
+
+export interface WorkingSourceResult {
+  readonly patcherId: string;
+  readonly scope: string;
+  readonly sourceRef: string;
+  readonly sourceCharacters: number;
+  readonly lineCount: number;
+  readonly source: string;
+}
+
 export interface PostApplyVerification {
   readonly revision: string;
   readonly structureToken: string;
@@ -88,6 +195,25 @@ export interface ApplyDslResult {
   readonly workingDslRequiredAsCurrent: boolean;
   readonly timings: ApplyDslTimings;
 }
+
+interface ResolvedChange {
+  readonly plan: PatchPlan;
+  readonly nextGraph: PatchGraph;
+  readonly intentGraph: PatchGraph;
+  readonly warnings: readonly CompileWarning[];
+  readonly workingDsl: string;
+  readonly intentDsl: string;
+  readonly workingDslRequiredAsCurrent: boolean;
+  readonly manualChangesMerged: number;
+}
+
+interface PreparedChange extends ResolvedChange {
+  readonly receiptId: string;
+  readonly patcherId: string;
+  readonly catalogDigest: string;
+}
+
+const MAX_PREPARED_CHANGES = 64;
 
 export interface ReconcilePlanResult {
   readonly canApply: boolean;
@@ -227,6 +353,7 @@ export class MaxforgePatchService {
   private readonly baselineSnapshots: Map<string, MaxforgePatcherSnapshot>;
   private readonly pendingApplies: Map<string, PendingPatchApply>;
   private readonly latestInspections = new Map<string, MaxforgeSnapshotEvent>();
+  private readonly preparedChanges = new Map<string, PreparedChange>();
 
   constructor(
     private readonly patchAdapter: PatchGraphAdapter,
@@ -255,9 +382,175 @@ export class MaxforgePatchService {
     };
   }
 
+  async prepareChange(request: PrepareChangeRequest): Promise<PrepareChangeOutcome> {
+    this.assertMutationCompatible(request.patcherId, request.scope);
+    const startedAt = performance.now();
+    let resolved: ResolvedChange;
+    if (request.manualChanges === "merge") {
+      const reconciliation = await this.reconcilePlan(
+        request,
+        request.expectedStructureToken
+      );
+      if (
+        !reconciliation.canApply ||
+        !reconciliation.plan ||
+        !reconciliation.mergedGraph
+      ) {
+        return {
+          canApply: false,
+          patcherId: request.patcherId,
+          scope: request.scope,
+          comparisonAvailable: reconciliation.comparisonAvailable,
+          managedChangeCount: reconciliation.managedChangeCount,
+          unmanagedChangeCount: reconciliation.unmanagedChangeCount,
+          conflicts: reconciliation.conflicts,
+          warnings: reconciliation.warnings,
+          structureToken: reconciliation.structureToken,
+          prepareMs: elapsedMilliseconds(startedAt, performance.now()),
+        };
+      }
+      const workingDslRequiredAsCurrent =
+        reconciliation.mergedGraph.revision !==
+        reconciliation.intentGraph.revision;
+      resolved = {
+        plan: reconciliation.plan,
+        nextGraph: reconciliation.mergedGraph,
+        intentGraph: reconciliation.intentGraph,
+        warnings: reconciliation.warnings,
+        workingDsl: workingDslRequiredAsCurrent
+          ? this.patchAdapter.serialize(reconciliation.mergedGraph)
+          : request.desiredDsl,
+        intentDsl: request.desiredDsl,
+        workingDslRequiredAsCurrent,
+        manualChangesMerged: reconciliation.managedChangeCount,
+      };
+    } else {
+      resolved = await this.resolveChange(request);
+    }
+    const receiptId = randomUUID();
+    const prepared: PreparedChange = {
+      ...resolved,
+      receiptId,
+      patcherId: request.patcherId,
+      catalogDigest: request.catalogDigest,
+    };
+    this.storePreparedChange(prepared);
+    return this.describePreparedChange(
+      prepared,
+      elapsedMilliseconds(startedAt, performance.now())
+    );
+  }
+
+  async prepareSourceEdit(
+    request: PrepareSourceEditRequest
+  ): Promise<PrepareChangeOutcome> {
+    const current = this.getWorkingSource(
+      request.patcherId,
+      request.scope,
+      request.baseSourceRef
+    );
+    const desiredDsl = applyWorkingSourceEdits(current.source, request.edits);
+    return this.prepareChange({
+      patcherId: request.patcherId,
+      scope: request.scope,
+      currentDsl: current.source,
+      desiredDsl,
+      manualChanges: request.manualChanges,
+      expectedStructureToken: request.expectedStructureToken,
+      catalogDigest: request.catalogDigest,
+    });
+  }
+
+  async applyPreparedChange(
+    request: ApplyPreparedChangeRequest
+  ): Promise<ApplyPreparedChangeResult> {
+    const prepared = this.preparedChanges.get(request.receiptId);
+    if (!prepared) {
+      throw new Error(
+        `Prepared change receipt ${request.receiptId} is missing or has already been consumed`
+      );
+    }
+    if (prepared.catalogDigest !== request.catalogDigest) {
+      this.preparedChanges.delete(request.receiptId);
+      throw new Error(
+        `Prepared change receipt ${request.receiptId} was compiled with catalog ` +
+        `${prepared.catalogDigest}, but the active catalog is ${request.catalogDigest}. ` +
+        "Prepare the change again."
+      );
+    }
+    this.assertMutationCompatible(prepared.patcherId, prepared.plan.scope);
+    try {
+      this.assertPreparedBase(prepared);
+    } catch (error) {
+      this.preparedChanges.delete(request.receiptId);
+      throw error;
+    }
+    this.preparedChanges.delete(request.receiptId);
+    const applied = await this.executeResolvedChange(
+      prepared.patcherId,
+      prepared,
+      performance.now()
+    );
+    return {
+      receiptId: prepared.receiptId,
+      patcherId: prepared.patcherId,
+      scope: applied.plan.scope,
+      baseRevision: applied.plan.baseRevision,
+      targetRevision: applied.plan.targetRevision,
+      operationCount: applied.plan.operations.length,
+      acknowledgement: applied.acknowledgement,
+      warnings: applied.warnings,
+      baselineCaptured: applied.baselineCaptured,
+      ...(applied.baselineWarning
+        ? { baselineWarning: applied.baselineWarning }
+        : {}),
+      ...(applied.verification ? { verification: applied.verification } : {}),
+      manualChangesMerged: applied.manualChangesMerged,
+      statePersisted: applied.statePersisted,
+      ...(applied.stateWarning ? { stateWarning: applied.stateWarning } : {}),
+      sourceRef: sourceReference(applied.workingDsl),
+      sourceCharacters: applied.workingDsl.length,
+      workingDslRequiredAsCurrent: applied.workingDslRequiredAsCurrent,
+      timings: applied.timings,
+    };
+  }
+
+  getWorkingSource(
+    patcherId: string,
+    scope: string,
+    expectedSourceRef?: string
+  ): WorkingSourceResult {
+    const source = this.workingSources.get(targetKey(patcherId, scope));
+    if (source === undefined) {
+      throw new Error(
+        `Max patch "${patcherId}" scope "${scope}" has no retained working source`
+      );
+    }
+    const sourceRef = sourceReference(source);
+    if (expectedSourceRef !== undefined && expectedSourceRef !== sourceRef) {
+      throw new Error(
+        `Working source changed for Max patch "${patcherId}" scope "${scope}": ` +
+        `expected ${expectedSourceRef}, current ${sourceRef}`
+      );
+    }
+    return {
+      patcherId,
+      scope,
+      sourceRef,
+      sourceCharacters: source.length,
+      lineCount: source.split("\n").length,
+      source,
+    };
+  }
+
   async applyDsl(request: ApplyDslRequest): Promise<ApplyDslResult> {
     this.assertMutationCompatible(request.patcherId, request.scope);
     const totalStartedAt = performance.now();
+    const resolved = await this.resolveChange(request);
+    return this.executeResolvedChange(request.patcherId, resolved, totalStartedAt);
+  }
+
+  private async resolveChange(request: ApplyDslRequest): Promise<ResolvedChange> {
     let plan: PatchPlan;
     let nextGraph: PatchGraph;
     let warnings: readonly CompileWarning[];
@@ -305,8 +598,34 @@ export class MaxforgePatchService {
     const workingDsl = workingDslRequiredAsCurrent
       ? this.patchAdapter.serialize(nextGraph)
       : request.desiredDsl;
-    const intentDsl = request.desiredDsl;
-    const key = targetKey(request.patcherId, request.scope);
+    return {
+      plan,
+      nextGraph,
+      intentGraph,
+      warnings,
+      workingDsl,
+      intentDsl: request.desiredDsl,
+      workingDslRequiredAsCurrent,
+      manualChangesMerged,
+    };
+  }
+
+  private async executeResolvedChange(
+    patcherId: string,
+    resolved: ResolvedChange,
+    totalStartedAt: number
+  ): Promise<ApplyDslResult> {
+    const {
+      plan,
+      nextGraph,
+      intentGraph,
+      warnings,
+      workingDsl,
+      intentDsl,
+      workingDslRequiredAsCurrent,
+      manualChangesMerged,
+    } = resolved;
+    const key = targetKey(patcherId, plan.scope);
     this.pendingApplies.set(key, {
       baseRevision: plan.baseRevision,
       nextGraph,
@@ -326,7 +645,7 @@ export class MaxforgePatchService {
       pendingStatePersistenceStartedAt,
       nativeApplyStartedAt
     );
-    const acknowledgement = await this.transport.apply(request.patcherId, plan);
+    const acknowledgement = await this.transport.apply(patcherId, plan);
     this.managedGraphs.set(
       key,
       nextGraph
@@ -344,8 +663,8 @@ export class MaxforgePatchService {
       postApplyInspectionStartedAt
     );
     const baseline = await this.captureBaseline(
-      request.patcherId,
-      request.scope,
+      patcherId,
+      plan.scope,
       nextGraph
     );
     const finalStatePersistenceStartedAt = performance.now();
@@ -380,6 +699,102 @@ export class MaxforgePatchService {
         totalMs: elapsedMilliseconds(totalStartedAt, completedAt),
       },
     };
+  }
+
+  private storePreparedChange(prepared: PreparedChange): void {
+    while (this.preparedChanges.size >= MAX_PREPARED_CHANGES) {
+      const oldest = this.preparedChanges.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.preparedChanges.delete(oldest);
+    }
+    this.preparedChanges.set(prepared.receiptId, prepared);
+  }
+
+  private describePreparedChange(
+    prepared: PreparedChange,
+    prepareMs: number
+  ): PreparedChangeResult {
+    const structureToken = prepared.plan.baseStructureToken;
+    if (structureToken === undefined) {
+      throw new Error("Prepared change is not bound to an inspected structure token");
+    }
+    const operationCounts: Record<keyof PreparedOperationCounts, number> = {
+      disconnect: 0,
+      delete: 0,
+      create: 0,
+      set: 0,
+      connect: 0,
+    };
+    const destructiveOperations: PatchPlan["operations"][number][] = [];
+    const deleted = new Map<string, PreparedReplacement>();
+    const created = new Set<string>();
+    for (const operation of prepared.plan.operations) {
+      operationCounts[operation.op]++;
+      if (operation.op === "disconnect" || operation.op === "delete") {
+        destructiveOperations.push(operation);
+      }
+      if (operation.op === "delete") {
+        deleted.set(operationIdentity(operation.targetPath, operation.id), {
+          targetPath: operation.targetPath,
+          id: operation.id,
+        });
+      } else if (operation.op === "create") {
+        created.add(operationIdentity(operation.targetPath, operation.box.id));
+      }
+    }
+    const replacements = [...deleted]
+      .filter(([identity]) => created.has(identity))
+      .map(([, replacement]) => replacement)
+      .sort((left, right) =>
+        operationIdentity(left.targetPath, left.id).localeCompare(
+          operationIdentity(right.targetPath, right.id)
+        )
+      );
+    return {
+      canApply: true,
+      receiptId: prepared.receiptId,
+      patcherId: prepared.patcherId,
+      scope: prepared.plan.scope,
+      baseRevision: prepared.plan.baseRevision,
+      targetRevision: prepared.plan.targetRevision,
+      structureToken,
+      operationCount: prepared.plan.operations.length,
+      operationCounts,
+      destructiveOperations,
+      replacements,
+      warnings: prepared.warnings,
+      sourceRef: sourceReference(prepared.workingDsl),
+      sourceCharacters: prepared.workingDsl.length,
+      workingDslRequiredAsCurrent: prepared.workingDslRequiredAsCurrent,
+      manualChangesMerged: prepared.manualChangesMerged,
+      prepareMs,
+      conflicts: [],
+    };
+  }
+
+  private assertPreparedBase(prepared: PreparedChange): void {
+    const key = targetKey(prepared.patcherId, prepared.plan.scope);
+    this.resolvePendingApply(key);
+    const managed = this.managedGraphs.get(key);
+    if (managed && managed.revision !== prepared.plan.baseRevision) {
+      throw new Error(
+        `Prepared change receipt ${prepared.receiptId} is stale: managed revision ` +
+        `${managed.revision} no longer matches base revision ${prepared.plan.baseRevision}`
+      );
+    }
+    const liveRevision = this.transport.getLiveRevision(
+      prepared.patcherId,
+      prepared.plan.scope
+    );
+    if (liveRevision === undefined) return;
+    const expectedRevision = liveRevision ??
+      createEmptyPatchGraph(prepared.plan.scope).revision;
+    if (expectedRevision !== prepared.plan.baseRevision) {
+      throw new Error(
+        `Prepared change receipt ${prepared.receiptId} is stale: Max reports ` +
+        `${liveRevision ?? "uninitialized"}, expected ${prepared.plan.baseRevision}`
+      );
+    }
   }
 
   async reconcilePlan(
@@ -1233,9 +1648,9 @@ export class MaxforgePatchService {
     if (!intent || intent.revision === current.revision) return;
     throw new Error(
       `Max patch "${request.patcherId}" scope "${request.scope}" contains ` +
-      "previously merged manual edits. Use maxforge_reconcile_patch and apply " +
-      "with manualChanges set to merge, or provide a complete currentDsl that " +
-      "includes the preserved edits."
+      "previously merged manual edits. Use maxforge_prepare_change with " +
+      "manualChanges set to merge, or provide the exact retained source as " +
+      "currentDsl (HTTP callers can use currentSourceRef)."
     );
   }
 
@@ -1313,6 +1728,65 @@ export class PatchReconciliationError extends Error {
 
 function targetKey(patcherId: string, scope: string): string {
   return `${patcherId}:${scope}`;
+}
+
+function sourceReference(source: string): string {
+  return createHash("sha256").update(source).digest("hex");
+}
+
+function operationIdentity(targetPath: readonly string[], id: string): string {
+  return `${targetPath.join("\0")}\0${id}`;
+}
+
+function applyWorkingSourceEdits(
+  source: string,
+  edits: readonly WorkingSourceEdit[]
+): string {
+  if (edits.length === 0) {
+    throw new Error("At least one working source edit is required");
+  }
+  const originalLines = source.split("\n");
+  const normalized = [...edits].sort((left, right) =>
+    left.startLine - right.startLine || left.endLine - right.endLine
+  );
+  let previousEnd = 0;
+  let previousStart = 0;
+  for (const edit of normalized) {
+    if (
+      !Number.isSafeInteger(edit.startLine) ||
+      !Number.isSafeInteger(edit.endLine) ||
+      edit.startLine < 1 ||
+      edit.startLine > originalLines.length + 1 ||
+      edit.endLine < edit.startLine ||
+      edit.endLine > originalLines.length + 1
+    ) {
+      throw new Error(
+        `Invalid working source edit range ${edit.startLine}..${edit.endLine}; ` +
+        `valid half-open line boundaries are 1..${originalLines.length + 1}`
+      );
+    }
+    if (
+      edit.startLine < previousEnd ||
+      (previousStart !== 0 && edit.startLine === previousStart)
+    ) {
+      throw new Error("Working source edit ranges must not overlap");
+    }
+    previousStart = edit.startLine;
+    previousEnd = edit.endLine;
+  }
+
+  const nextLines = [...originalLines];
+  for (const edit of normalized.reverse()) {
+    const replacementLines = edit.replacement.length === 0
+      ? []
+      : edit.replacement.split("\n");
+    nextLines.splice(
+      edit.startLine - 1,
+      edit.endLine - edit.startLine,
+      ...replacementLines
+    );
+  }
+  return nextLines.join("\n");
 }
 
 function elapsedMilliseconds(startedAt: number, endedAt: number): number {

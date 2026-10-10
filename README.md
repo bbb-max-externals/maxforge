@@ -20,6 +20,7 @@ The offline toolchain can:
 
 - compile `.maxdsl` text to `.maxpat` JSON;
 - generate repeated structures with `for`, `if`, and numeric expressions;
+- zip-connect consecutive outlet and inlet ranges with concise port mapping;
 - validate objects and ports against built-in or project-supplied metadata;
 - decompile supported `.maxpat` structure back to DSL; and
 - emit Max clipboard text or a portable package directory.
@@ -145,7 +146,9 @@ For local development, use this checkout's absolute path instead of
   design.
 - Live control manages only its declared scope. It does not guarantee complete
   rollback of runtime state after a failed mutation.
-- The macOS external is ad-hoc signed and not notarized.
+- Local macOS builds are ad-hoc signed. Published versioned release archives
+  are Developer ID signed and notarized by CI; do not redistribute a local
+  build as if it were a release artifact.
 
 The detailed documents state narrower limits for each subsystem. Those limits
 are part of the contract, not optional caveats.

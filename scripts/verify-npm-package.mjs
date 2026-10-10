@@ -24,11 +24,11 @@ try {
   const { stdout } = await run("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", packDirectory], { cwd: repository });
   const packed = JSON.parse(stdout)[0];
   const files = new Set(packed.files.map(({ path }) => path));
-  for (const path of ["dist/cli/index.js", "dist/live/bin.js", "skills/maxforge/SKILL.md", "skills/maxforge/agents/openai.yaml", "skills/maxforge-live/SKILL.md", "skills/maxforge-live/agents/openai.yaml"]) {
+  for (const path of ["dist/cli/index.js", "dist/live/bin.js", "skills/maxforge/SKILL.md", "skills/maxforge/agents/openai.yaml", "skills/maxforge-live/SKILL.md", "skills/maxforge-live/agents/openai.yaml", "skills/maxforge-live/references/setup.md"]) {
     if (!files.has(path)) throw new Error(`Missing npm artifact: ${path}`);
   }
   for (const path of files) {
-    if (path.startsWith("dist/mcp/") || /dist\/live\/(broker|server)/.test(path)) throw new Error(`Stale legacy artifact: ${path}`);
+    if (path.startsWith("dist/mcp/") || path.startsWith("skills/maxforge-mcp/") || /dist\/live\/(broker|server)/.test(path)) throw new Error(`Stale legacy artifact: ${path}`);
   }
   await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", join(packDirectory, packed.filename)], { cwd: temporary });
   const cli = join(temporary, "node_modules", ".bin", process.platform === "win32" ? "maxforge.cmd" : "maxforge");
