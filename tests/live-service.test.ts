@@ -2095,6 +2095,38 @@ describe("MaxforgePatchService", () => {
     });
   });
 
+  it.each(["number", "flonum"])("captures the Max 9 default %s geometry without a false manual edit", async (objectName) => {
+    const transport = new FakeTransport();
+    transport.snapshot = { ...patcherSnapshot(), boxes: [], connections: [] };
+    const dsl = `value_input = ${objectName} at(80, 120)`;
+    const expectedSnapshot = snapshotForDsl(dsl, "voices");
+    transport.snapshotAfterApply = {
+      ...expectedSnapshot,
+      boxes: expectedSnapshot.boxes.map((box) => ({
+        ...box,
+        // Max 9 reports both numeric UIs as number, with a 22px height.
+        maxclass: "number",
+        text: "0",
+        patchingRect: [80, 120, 50, 22] as const,
+      })),
+    };
+    const service = createService(transport);
+    const result = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: dsl,
+    });
+    expect(result.baselineCaptured).toBe(true);
+    expect(result.baselineWarning).toBeUndefined();
+    expect(result.verification?.revision).toBe(result.plan.targetRevision);
+    const unchanged = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: dsl,
+    });
+    expect(unchanged.plan.operations).toEqual([]);
+  });
+
   it("does not capture a post-apply baseline that differs from the target graph", async () => {
     const transport = new FakeTransport();
     transport.snapshotAfterApply = {
