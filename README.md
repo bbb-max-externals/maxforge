@@ -89,6 +89,14 @@ Install the complete Max package from
 create one `maxforge` object. Nothing else needs to be placed or started.
 The object automatically launches the bundled service; other patches share it.
 
+Use a v0.6.0 or newer release: earlier packages contain the removed MCP external.
+Download `maxforge-v<VERSION>.zip` and its matching `.sha256`, verify the checksum,
+then extract the complete `maxforge` folder into your Max 9 `Packages` directory
+(normally `Documents/Max 9/Packages`). Close Max before replacing a package and
+keep any backup outside Max's search paths. Do not copy just the external binary:
+the package includes its service but no separate Node runtime. Restart Max and
+create `maxforge` to connect. An active Max license is needed to save patches.
+
 Agents use the local HTTP API discovered from
 `~/.maxforge/services/<Max PID>.json`. Node/npm installation and MCP configuration
 are not required. An optional `maxforge live` CLI provides discovery and calls.
