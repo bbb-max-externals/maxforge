@@ -2119,12 +2119,28 @@ describe("MaxforgePatchService", () => {
     expect(result.baselineCaptured).toBe(true);
     expect(result.baselineWarning).toBeUndefined();
     expect(result.verification?.revision).toBe(result.plan.targetRevision);
+    // Reloading flonum changes display formatting; value updates are not edits.
+    transport.snapshot = {
+      ...transport.snapshot,
+      boxes: transport.snapshot.boxes.map((box) => ({ ...box, text: "0." })),
+    };
+    expect(diffPatcherSnapshots(transport.snapshotAfterApply, transport.snapshot)).toEqual([]);
+    transport.snapshotAfterApply = transport.snapshot;
     const unchanged = await service.applyDsl({
       patcherId: "patch-a",
       scope: "voices",
       desiredDsl: dsl,
     });
     expect(unchanged.plan.operations).toEqual([]);
+    transport.snapshot = {
+      ...transport.snapshot,
+      boxes: transport.snapshot.boxes.map((box) => ({
+        ...box, patchingRect: [90, 120, 50, 22] as const,
+      })),
+    };
+    await expect(service.applyDsl({
+      patcherId: "patch-a", scope: "voices", desiredDsl: dsl,
+    })).rejects.toThrow("managed manual change");
   });
 
   it("does not capture a post-apply baseline that differs from the target graph", async () => {

@@ -209,13 +209,21 @@ function changedBoxFields(
   ) {
     fields.push("patchingRect");
   }
-  if (baseline.text !== current.text) fields.push("text");
+  if (structuralBoxText(baseline) !== structuralBoxText(current)) fields.push("text");
   if (baseline.comment !== current.comment) fields.push("comment");
   if (!sameSnapshotAttributes(baseline.attributes, current.attributes)) {
     fields.push("attributes");
   }
   if (baseline.managed !== current.managed) fields.push("managed");
   return fields;
+}
+
+function structuralBoxText(box: MaxforgeSnapshotBox): string | undefined {
+  // Numeric UI text is its current display value, not serialized object text.
+  // In particular, flonum can switch from "0" to "0." after save/reopen.
+  return box.maxclass === "number" || box.maxclass === "flonum"
+    ? undefined
+    : box.text;
 }
 
 function snapshotConnectionKey(
