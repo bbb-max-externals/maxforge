@@ -1,6 +1,7 @@
 #include "c74_min.h"
 #include "bbb_agent_websocket_client.hpp"
 #include "maxforge_native_protocol.hpp"
+#include "runtime_ui.hpp"
 #include "managed_service.hpp"
 
 #include <algorithm>
@@ -835,6 +836,12 @@ auto attribute_text(
 }
 
 auto box_text(c74::max::t_object *box, bool &has_text) -> std::string {
+	// Numeric UI textfields are formatted runtime values, updated on redraw.
+	// Including them makes tokens depend on whether the patch window is visible.
+	if(!sync_protocol::is_snapshot_text(symbol_string(c74::max::jbox_get_maxclass(box)))) {
+		has_text = false;
+		return {};
+	}
 	auto result = attribute_text(box, "text", has_text);
 	if(has_text) return result;
 
@@ -894,22 +901,12 @@ auto atoms_json(long count, const c74::max::t_atom *values) -> std::string {
 	return result + "]";
 }
 
-auto is_snapshot_attribute(const std::string &name) -> bool {
-	static const std::unordered_set<std::string> separately_serialized{
-		"patching_rect",
-		"text",
-		"comment",
-		"value"
-	};
-	return sync_protocol::is_safe_set_attribute(name) &&
-		separately_serialized.count(name) == 0;
-}
-
 void collect_snapshot_attributes(
 	c74::max::t_object *object,
 	std::vector<std::pair<std::string, std::string>> &attributes
 ) {
 	if(!object) return;
+	const auto class_name = symbol_string(c74::max::object_classname(object));
 	long count{};
 	c74::max::t_symbol **names{};
 	if(
@@ -925,12 +922,14 @@ void collect_snapshot_attributes(
 	for(long index{}; index < count; index++) {
 		auto *name = names[index];
 		const auto attribute_name = symbol_string(name);
+		const auto stable_identity = class_name == "maxforge" &&
+			(attribute_name == "patcher_id" || attribute_name == "scope");
 		if(
 			!name ||
-			!is_snapshot_attribute(attribute_name) ||
+			!sync_protocol::is_snapshot_attribute(attribute_name, class_name) ||
 			c74::max::object_attr_usercanget(object, name) == 0 ||
 			c74::max::object_attr_usercanset(object, name) == 0 ||
-			c74::max::object_attr_getdirty(object, name) == 0
+			(!stable_identity && c74::max::object_attr_getdirty(object, name) == 0)
 		) {
 			continue;
 		}
@@ -951,6 +950,8 @@ void collect_snapshot_attributes(
 		const auto encoded = atoms_json(value_count, values);
 		if(values) c74::max::sysmem_freeptr(values);
 		if(encoded.empty()) continue;
+		// Max marks this default dirty lazily, including when other patches open.
+		if(class_name == "jpatcher" && attribute_name == "globalpatchername" && encoded == "\"\"") continue;
 
 		auto existing = std::find_if(
 			attributes.begin(),
@@ -1341,6 +1342,128 @@ auto resolve_target_patcher(
 		if(!patcher) return nullptr;
 	}
 	return patcher;
+}
+
+// Inspection paths use scripting names, or runtime IDs for unnamed containers.
+// Require uniqueness; never search another patcher or silently choose a duplicate.
+auto find_runtime_box(c74::max::t_object *patcher, const std::string &identity,
+	bool by_runtime_id) -> c74::max::t_object *
+{
+	c74::max::t_object *found{};
+	if(!patcher) return nullptr;
+	for(auto *box = c74::max::jpatcher_get_firstobject(patcher); box;
+		box = c74::max::jbox_get_nextobject(box)) {
+		const auto name = symbol_string(c74::max::jbox_get_varname(box));
+		const auto matches = by_runtime_id ? box_runtime_id(box) == identity :
+			(name.empty() ? box_runtime_id(box) : name) == identity;
+		if(!matches) continue;
+		if(found) throw maxforge::runtime_ui::error{"AMBIGUOUS_TARGET", "Ambiguous runtime box identity"};
+		found = box;
+	}
+	return found;
+}
+
+auto resolve_runtime_box(c74::max::t_object *root, const std::vector<std::string> &path,
+	const std::string &runtime_id) -> c74::max::t_object *
+{
+	if(31 < path.size()) throw maxforge::runtime_ui::error{"INVALID_ARGUMENT", "Runtime path exceeds 31 levels"};
+	auto *patcher = root;
+	for(const auto &component : path) {
+		auto *box = find_runtime_box(patcher, component, false);
+		patcher = box ? child_patcher(box) : nullptr;
+		if(!patcher) return nullptr;
+	}
+	return find_runtime_box(patcher, runtime_id, true);
+}
+
+auto runtime_state_json(c74::max::t_object *object, const std::string &class_name) -> std::string {
+	const auto unavailable = [](const std::string &reason) {
+		return "{\"status\":\"unavailable\",\"reason\":" + json_string(reason) + "}";
+	};
+	if(!object) return unavailable("Target disappeared after dispatch");
+	if(class_name == "button" || class_name == "live.button") {
+		return unavailable("Momentary trigger has no persistent value");
+	}
+	if(class_name == "message") {
+		return unavailable("Message content is structural text; inspect it instead of reading runtime state");
+	}
+	if(!c74::max::object_getmethod(object, c74::max::gensym("getvalueof"))) {
+		return unavailable("No supported side-effect-free getvalueof method");
+	}
+	long count{};
+	c74::max::t_atom *values{};
+	const auto result = c74::max::object_getvalueof(object, &count, &values);
+	std::string encoded{"["};
+	bool valid = result == c74::max::MAX_ERR_NONE && 0 <= count && count <= 16384 && (count == 0 || values);
+	if(valid) {
+		for(long index{}; index < count; index++) {
+			const auto type = c74::max::atom_gettype(values + index);
+			if(type == c74::max::A_LONG || type == c74::max::A_FLOAT) {
+				const auto number = c74::max::atom_getfloat(values + index);
+				if(!std::isfinite(number) || 9007199254740991.0 < std::abs(number)) { valid = false; break; }
+			} else if(type != c74::max::A_SYM || 1024 < atom_string(values[index]).size()) {
+				valid = false;
+				break;
+			}
+			const auto value = atoms_json(1, values + index);
+			if(value.empty()) { valid = false; break; }
+			if(0 < index) encoded += ",";
+			encoded += value;
+		}
+	}
+	if(values) c74::max::sysmem_freeptr(values);
+	if(!valid) return unavailable("getvalueof failed or returned unsupported/oversized state");
+	return "{\"status\":\"available\",\"values\":" + encoded + "]}";
+}
+
+void validate_runtime_configuration(c74::max::t_object *object, const std::string &class_name,
+	const std::string &selector, const std::vector<maxforge::runtime_ui::atom> &values)
+{
+	using maxforge::runtime_ui::error;
+	const auto attribute = [object](const char *name) {
+		return c74::max::object_attr_getlong(object, c74::max::gensym(name));
+	};
+	if((class_name == "textbutton" || class_name == "live.text") &&
+		(selector == "set" || selector == "symbol" || selector == "setsymbol") && attribute("mode") != 1) {
+		throw error{"UNSUPPORTED_MODE", "This message requires toggle mode (mode=1)"};
+	}
+	if(values.empty() || std::holds_alternative<std::string>(values[0])) return;
+	if(class_name == "multislider") {
+		const auto size = attribute("size");
+		if(selector == "list" || selector == "setlist") {
+			if(static_cast<long>(values.size()) != size) {
+				throw error{"INVALID_ARGUMENT", "Keep multislider list length equal to size; resizing is structural"};
+			}
+		} else if(selector == "set" && size < std::get<double>(values[0])) {
+			throw error{"INVALID_ARGUMENT", "multislider index exceeds size"};
+		}
+	}
+	if(class_name == "matrixctrl") {
+		const auto columns = attribute("columns");
+		const auto rows = attribute("rows");
+		const auto range = attribute("range");
+		for(std::size_t index{}; index < values.size(); index += 3) {
+			if(columns <= std::get<double>(values[index]) || rows <= std::get<double>(values[index + 1]) ||
+				range <= std::get<double>(values[index + 2])) {
+				throw error{"INVALID_ARGUMENT", "matrixctrl coordinate or value outside configured dimensions/range"};
+			}
+		}
+	}
+	if(class_name == "radiogroup") {
+		const auto checkbox = attribute("itemtype") == 1;
+		const auto flag = attribute("flagmode") != 0;
+		if(selector == "list" || (checkbox && !flag && selector == "set")) {
+			if(!checkbox || static_cast<long>(values.size()) != attribute("size")) {
+				throw error{"INVALID_ARGUMENT", "Checkbox list must match radiogroup size and itemtype=1"};
+			}
+			for(const auto &value : values) {
+				const auto number = std::get<double>(value);
+				if(number != 0 && number != 1) throw error{"INVALID_ARGUMENT", "Checkbox values must be 0 or 1"};
+			}
+		} else if(values.size() != 1 || (checkbox && !flag)) {
+			throw error{"UNSUPPORTED_MODE", "Use a checkbox list in this radiogroup mode"};
+		}
+	}
 }
 
 auto apply_connection(
@@ -2444,6 +2567,11 @@ private:
 						configured_patcher_id() + "\""
 					);
 				}
+
+				if(message_type == "maxforge.runtime.request") {
+					process_runtime(dictionary, request_id);
+					return;
+				}
 				if(message_type != "maxforge.apply.request") {
 					event_scope = dictionary_string(dictionary, "scope");
 					if(event_scope != configured_scope()) {
@@ -2673,6 +2801,98 @@ private:
 		}
 	}
 
+	void process_runtime(c74::max::t_dictionary *dictionary, const std::string &request_id) {
+		using maxforge::runtime_ui::error;
+		bool dispatched{};
+		try {
+			if(dictionary_string(dictionary, "scope") != configured_scope() ||
+				dictionary_string(dictionary, "instanceId") != instance_id_) {
+				throw error{"STALE_TARGET", "Patch scope or instance changed; list and inspect again"};
+			}
+			auto *target = dictionary_child(dictionary, "target");
+			const auto path = string_array(target, "targetPath");
+			const auto runtime_id = dictionary_string(target, "runtimeId");
+			const auto variable_name = dictionary_string(target, "varName");
+			const auto expected_class = dictionary_string(target, "maxclass");
+			auto *root = top_level_patcher();
+			auto *box = resolve_runtime_box(root, path, runtime_id);
+			if(!box) throw error{"TARGET_NOT_FOUND", "Runtime target does not exist; inspect again"};
+			if(symbol_string(c74::max::jbox_get_varname(box)) != variable_name ||
+				symbol_string(c74::max::jbox_get_maxclass(box)) != expected_class) {
+				throw error{"STALE_TARGET", "Runtime box identity changed; inspect again"};
+			}
+			const auto snapshot = make_patch_snapshot(root, configured_scope());
+			if(dictionary_string(dictionary, "expectedStructureToken") != patch_structure_token(snapshot)) {
+				throw error{"STALE_STRUCTURE", "Patch structure changed; inspect again"};
+			}
+			const auto managed = !sync_protocol::managed_id_from_variable_name(configured_scope(), variable_name).empty();
+			if(!managed && dictionary_long(dictionary, "allowUnmanaged") == 0) {
+				throw error{"UNMANAGED_TARGET", "Explicit allowUnmanaged is required for a user-selected unmanaged box"};
+			}
+			auto *object = c74::max::jbox_get_object(box);
+			if(!object) throw error{"TARGET_NOT_FOUND", "Box has no runtime object"};
+			const auto class_name = symbol_string(c74::max::object_classname(object));
+			const auto supported = maxforge::runtime_ui::supported_messages(class_name);
+			if(supported.empty()) throw error{"UNSUPPORTED_CLASS", "Unsupported runtime UI class: " + class_name};
+			const auto sending = c74::max::dictionary_hasentry(dictionary, c74::max::gensym("message")) != 0;
+			if(sending) {
+				auto *message = dictionary_child(dictionary, "message");
+				const auto selector = dictionary_string(message, "selector");
+				long count{};
+				const auto *input_atoms = dictionary_array(message, "atoms", count);
+				if(count < 0 || 256 < count) throw error{"INVALID_ARGUMENT", "At most 256 atoms are supported"};
+				std::vector<maxforge::runtime_ui::atom> values;
+				std::vector<c74::max::t_atom> arguments;
+				for(long index{}; index < count; index++) {
+					const auto &input = input_atoms[index];
+					const auto type = c74::max::atom_gettype(&input);
+					c74::max::t_atom argument{};
+					if(type == c74::max::A_LONG || type == c74::max::A_FLOAT) {
+						const auto number = c74::max::atom_getfloat(&input);
+						values.emplace_back(number);
+						argument = input;
+					} else if(type == c74::max::A_SYM || c74::max::atomisstring(&input)) {
+						const auto string = atom_string(input);
+						if(1024 < string.size()) throw error{"INVALID_ARGUMENT", "Symbol is too long"};
+						values.emplace_back(string);
+						c74::max::atom_setsym(&argument, c74::max::gensym(string.c_str()));
+					} else throw error{"INVALID_ARGUMENT", "Only numbers and symbols are supported"};
+					arguments.push_back(argument);
+				}
+				maxforge::runtime_ui::validate_message(class_name, selector, values);
+				validate_runtime_configuration(object, class_name, selector, values);
+				if(selector == "int") c74::max::atom_setlong(arguments.data(), static_cast<c74::max::t_atom_long>(std::get<double>(values[0])));
+				if(selector == "float") c74::max::atom_setfloat(arguments.data(), std::get<double>(values[0]));
+				// Runs only from transport_queue_ on Max's main thread. Do not use
+				// attribute setters, outlet hooks, eval, or thispatcher scripting.
+				dispatched = true;
+				const auto result = c74::max::object_method_typed(object, c74::max::gensym(selector.c_str()),
+					static_cast<long>(arguments.size()), arguments.empty() ? nullptr : arguments.data(), nullptr);
+				if(result != c74::max::MAX_ERR_NONE) throw error{"DISPATCH_FAILED", "Max rejected message dispatch; inspect before retrying"};
+				// Downstream messages may remove or replace the target. Never reuse
+				// its old pointer for post-dispatch reads.
+				box = resolve_runtime_box(top_level_patcher(), path, runtime_id);
+				object = box && symbol_string(c74::max::jbox_get_varname(box)) == variable_name &&
+					symbol_string(c74::max::jbox_get_maxclass(box)) == expected_class ? c74::max::jbox_get_object(box) : nullptr;
+			}
+			send_event("{\"type\":\"maxforge.runtime.result\",\"requestId\":" + json_string(request_id) +
+				",\"patcherId\":" + json_string(configured_patcher_id()) + ",\"scope\":" + json_string(configured_scope()) +
+				",\"instanceId\":" + json_string(instance_id_) + ",\"operation\":" + json_string(sending ? "send" : "read") +
+				",\"execution\":\"completed\",\"target\":{\"targetPath\":" + json_string_array(path) +
+				",\"runtimeId\":" + json_string(runtime_id) + ",\"varName\":" + json_string(variable_name) +
+				",\"maxclass\":" + json_string(expected_class) + "},\"managed\":" + (managed ? "true" : "false") +
+				",\"objectClass\":" + json_string(class_name) + ",\"supportedMessages\":" + json_string_array(supported) +
+				",\"state\":" + runtime_state_json(object, class_name) + "}");
+		} catch(const std::exception &exception) {
+			const auto *runtime_error = dynamic_cast<const error *>(&exception);
+			send_event("{\"type\":\"maxforge.runtime.error\",\"requestId\":" + json_string(request_id) +
+				",\"patcherId\":" + json_string(configured_patcher_id()) + ",\"scope\":" + json_string(configured_scope()) +
+				",\"code\":" + json_string(runtime_error ? runtime_error->code : "INVALID_ARGUMENT") +
+				",\"message\":" + json_string(exception.what()) + ",\"execution\":" +
+				json_string(dispatched ? "unknown" : "not_executed") + "}");
+		}
+	}
+
 	void send_patch_snapshot(const std::string &request_id) {
 		try {
 			auto *root_patcher = top_level_patcher();
@@ -2770,7 +2990,7 @@ private:
 				json_string(symbol_string(c74::max::jpatcher_get_filepath(root_patcher))) +
 				",\"externalVersion\":" +
 				json_string(MAXFORGE_PACKAGE_VERSION) +
-				",\"capabilities\":[\"edit_observation_v1\",\"session_baseline_v1\"]" +
+				",\"capabilities\":[\"edit_observation_v1\",\"session_baseline_v1\",\"runtime_ui_v1\"]" +
 				",\"observationBaseline\":{\"structureToken\":" +
 				json_string(observation_baseline_token) +
 				",\"patcher\":" +

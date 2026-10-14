@@ -54,6 +54,15 @@ Its `structuredContent.patches` array includes each connected patch's `patcherId
 `scope`, `title`, `filename`, `filepath`, `revision`, and version compatibility.
 Use the returned ID/scope for subsequent actions; duplicate live IDs are rejected.
 
+## Runtime UI values and messages
+
+Max package v0.6.2 adds `maxforge_read_runtime` and `maxforge_send_message` under
+the `runtime_ui_v1` capability. They read or operate basic UI values without
+turning values into structural DSL edits. Select a registered patch lifetime
+and an inspected box, then send one validated left-inlet message. Read never
+fires an outlet; a send acknowledges native dispatch, not downstream completion.
+See the [class support table and runtime contract](../skills/maxforge-live/references/runtime-ui.md).
+
 ## Safe mutation
 
 1. Discover action schemas; use `maxforge_help` (workflow) if unfamiliar. Confirm

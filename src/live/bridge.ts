@@ -1,5 +1,10 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
+import {
+  RuntimeOperationError, runtimeRequestSchema, runtimeSendSchema,
+  runtimeResultSchema, runtimeFailureSchema,
+  type RuntimeRequest, type RuntimeResult, type RuntimeFailure,
+} from "../max/runtime-protocol.js";
 import type { PatchPlan, PatchSetValue } from "../max/patch-graph.js";
 import type { EditHistoryStore } from "./edit-history-store.js";
 import type {
@@ -75,6 +80,11 @@ interface PendingInspection {
   readonly timeout: NodeJS.Timeout;
 }
 
+interface PendingRuntime extends Omit<PendingInspection, "kind" | "resolve"> {
+  readonly request: RuntimeRequest;
+  readonly resolve: (event: RuntimeResult) => void;
+}
+
 interface PendingCreate {
   readonly client: WebSocket;
   readonly requestId: string;
@@ -132,6 +142,7 @@ export class MaxforgeWebSocketBridge implements PatchPlanTransport {
   private readonly clientPatcherIds = new Map<WebSocket, string>();
   private readonly pendingApplies = new Map<string, PendingApply>();
   private readonly pendingInspections = new Map<string, PendingInspection>();
+  private readonly pendingRuntime = new Map<string, PendingRuntime>();
   private readonly pendingCreates = new Map<string, PendingCreate>();
   private readonly pendingOpens = new Map<string, PendingOpen>();
   private readonly pendingSaves = new Map<string, PendingSave>();
@@ -315,6 +326,78 @@ export class MaxforgeWebSocketBridge implements PatchPlanTransport {
         if (error) this.rejectApply(requestId, error);
       });
     });
+  }
+
+  async runtime(input: RuntimeRequest): Promise<RuntimeResult> {
+    let request: RuntimeRequest;
+    let registration: RegisteredClient;
+    try {
+      request = input.message === undefined
+        ? runtimeRequestSchema.parse(input) : runtimeSendSchema.parse(input);
+      registration = this.getRegisteredClient(request.patcherId, request.scope);
+      this.assertVersionCompatible(registration);
+      this.assertPatchIsIdle(request.patcherId);
+      if (registration.info.instanceId !== request.instanceId) {
+        throw new Error("Patch instance changed; list and inspect again");
+      }
+      if (!registration.info.capabilities.includes("runtime_ui_v1")) {
+        throw new Error("Loaded external does not support runtime_ui_v1");
+      }
+    } catch (error) {
+      throw new RuntimeOperationError("RUNTIME_UNAVAILABLE", String(error), "not_executed");
+    }
+    const requestId = randomUUID();
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => this.rejectRuntime(requestId,
+        new RuntimeOperationError("RUNTIME_TIMEOUT",
+          "Runtime outcome is unknown. Do not retry a send; read state and inspect first.",
+          "unknown", requestId)), this.applyTimeoutMs);
+      this.pendingRuntime.set(requestId, {
+        client: registration.client, requestId, patcherId: request.patcherId,
+        scope: request.scope, request, resolve, reject, timeout,
+      });
+      this.pendingOperations.set(request.patcherId, requestId);
+      registration.client.send(JSON.stringify({
+        ...request, type: "maxforge.runtime.request", requestId,
+      }), (error) => { if (error) this.rejectRuntime(requestId, error); });
+    });
+  }
+
+  private handleRuntime(client: WebSocket, event: RuntimeResult | RuntimeFailure): void {
+    const pending = this.pendingRuntime.get(event.requestId);
+    if (!pending || pending.client !== client) return;
+    if (pending.patcherId !== event.patcherId || pending.scope !== event.scope) {
+      this.rejectRuntime(event.requestId, new Error("Mismatched runtime target"));
+      return;
+    }
+    if (event.type === "maxforge.runtime.error") {
+      this.rejectRuntime(event.requestId, new RuntimeOperationError(
+        event.code, event.message, event.execution, event.requestId));
+      return;
+    }
+    if (event.instanceId !== pending.request.instanceId ||
+        event.operation !== (pending.request.message ? "send" : "read") ||
+        event.target.runtimeId !== pending.request.target.runtimeId ||
+        event.target.varName !== pending.request.target.varName ||
+        event.target.maxclass !== pending.request.target.maxclass ||
+        JSON.stringify(event.target.targetPath) !== JSON.stringify(pending.request.target.targetPath)) {
+      this.rejectRuntime(event.requestId, new Error("Mismatched runtime acknowledgement"));
+      return;
+    }
+    clearTimeout(pending.timeout);
+    this.pendingRuntime.delete(event.requestId);
+    this.pendingOperations.delete(pending.patcherId);
+    pending.resolve(event);
+  }
+
+  private rejectRuntime(requestId: string, error: Error): void {
+    const pending = this.pendingRuntime.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    this.pendingRuntime.delete(requestId);
+    this.pendingOperations.delete(pending.patcherId);
+    pending.reject(error instanceof RuntimeOperationError ? error : new RuntimeOperationError(
+      "RUNTIME_TRANSPORT_ERROR", `${error.message}; outcome unknown; do not retry a send`, "unknown", requestId));
   }
 
   async inspect(
@@ -640,7 +723,7 @@ export class MaxforgeWebSocketBridge implements PatchPlanTransport {
   }
 
   getPendingOperationCount(): number {
-    return this.pendingApplies.size +
+    return this.pendingRuntime.size + this.pendingApplies.size +
       this.pendingInspections.size +
       this.pendingCreates.size +
       this.pendingOpens.size +
@@ -709,6 +792,10 @@ export class MaxforgeWebSocketBridge implements PatchPlanTransport {
     if (!event) return;
 
     switch (event.type) {
+      case "maxforge.runtime.result":
+      case "maxforge.runtime.error":
+        this.handleRuntime(client, event);
+        return;
       case "maxforge.registered":
         this.handleRegistration(client, event);
         return;
@@ -1277,6 +1364,9 @@ export class MaxforgeWebSocketBridge implements PatchPlanTransport {
   }
 
   private rejectPendingForClient(client: WebSocket, error: Error): void {
+    for (const pending of [...this.pendingRuntime.values()]) {
+      if (pending.client === client) this.rejectRuntime(pending.requestId, error);
+    }
     for (const pending of [...this.pendingApplies.values()]) {
       if (pending.client === client) this.rejectApply(pending.requestId, error);
     }
@@ -1300,6 +1390,7 @@ export class MaxforgeWebSocketBridge implements PatchPlanTransport {
   }
 
   private rejectAllPending(error: Error): void {
+    for (const requestId of [...this.pendingRuntime.keys()]) this.rejectRuntime(requestId, error);
     for (const requestId of [...this.pendingApplies.keys()]) {
       this.rejectApply(requestId, error);
     }
@@ -1335,6 +1426,15 @@ export function parseBridgeEvent(raw: string): MaxforgeBridgeEvent | undefined {
     !isIdentifier(value.scope)
   ) {
     return undefined;
+  }
+
+  if (value.type === "maxforge.runtime.result") {
+    const result = runtimeResultSchema.safeParse(value);
+    return result.success ? result.data : undefined;
+  }
+  if (value.type === "maxforge.runtime.error") {
+    const result = runtimeFailureSchema.safeParse(value);
+    return result.success ? result.data : undefined;
   }
 
   if (

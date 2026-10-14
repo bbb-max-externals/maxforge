@@ -1,4 +1,5 @@
 import type { PatchPlan, PatchSetValue } from "./patch-graph.js";
+import type { RuntimeRequest, RuntimeResult, RuntimeFailure } from "./runtime-protocol.js";
 
 export interface MaxforgePatchInfo {
   readonly patcherId: string;
@@ -242,6 +243,8 @@ export interface MaxforgeSnapshotEvent {
 }
 
 export type MaxforgeBridgeEvent =
+  | RuntimeResult
+  | RuntimeFailure
   | MaxforgePatchRegistration
   | MaxforgeAppliedEvent
   | MaxforgeRevisionEvent
@@ -287,6 +290,7 @@ export interface CloseMaxPatchRequest {
 }
 
 export interface PatchPlanTransport {
+  runtime(request: RuntimeRequest): Promise<RuntimeResult>;
   apply(
     patcherId: string,
     plan: PatchPlan

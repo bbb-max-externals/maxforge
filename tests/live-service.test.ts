@@ -2224,6 +2224,7 @@ function snapshotStructureToken(snapshot: MaxforgePatcherSnapshot): string {
 }
 
 class FakeTransport implements PatchPlanTransport {
+  async runtime(): Promise<never> { throw new Error("Runtime not configured in this fixture"); }
   readonly plans: PatchPlan[] = [];
   readonly liveRevisions = new Map<string, string | null>();
   failure: Error | undefined;

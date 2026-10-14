@@ -7,6 +7,9 @@ import {
 import type { ObjectDatabase } from "../core/types.js";
 import { MaxforgePatchService } from "./service.js";
 import { PatchPlanTransport } from "../max/patch-protocol.js";
+import {
+  runtimeRequestSchema, runtimeSendSchema, runtimeResultSchema, RuntimeOperationError,
+} from "../max/runtime-protocol.js";
 
 const scopeSchema = z
   .string()
@@ -161,7 +164,7 @@ const catalogStatusSchema = z.object({
   abstractionCount: z.number().int().nonnegative(),
 });
 
-const helpTopicSchema = z.enum(["workflow", "setup", "recovery", "safety"]);
+const helpTopicSchema = z.enum(["workflow", "setup", "recovery", "safety", "runtime"]);
 
 const maxPatchPathSchema = z
   .string()
@@ -548,6 +551,26 @@ const liveEditHistorySchema = z.object({
 });
 
 const HELP_CONTENT = {
+  runtime: {
+    summary: "Read and operate basic UI values separately from structural DSL editing.",
+    steps: [
+      "List patches, require versionCompatible and runtime_ui_v1; retain instanceId. Inspect the patch and copy targetPath/runtimeId/varName/maxclass and expectedStructureToken.",
+      "Call maxforge_read_runtime for supportedMessages and current state. Reading never uses bang and never emits outlets.",
+      "Send one selector plus atoms to maxforge_send_message. int/float normally output; set normally changes the value without message output. incdec numeric input is silent; use inc/dec/bang for output. gain~ set still changes audio gain.",
+      "Use explicit 0/1 for toggles, 0-based selection indices, multislider set [1-based index,value], matrixctrl list/set [column,row,value,...]. Preserve multislider length. Message boxes support bang only: change text through structural editing.",
+      "Inspect downstream UI state to verify output. An execution=completed acknowledgement confirms native dispatch, not downstream delivery or deferred/audio completion.",
+    ],
+    rules: [
+      "Only the listed messages for supported basic UI classes are allowed, at the left inlet. Unsupported operations never fall back to another selector.",
+      "allowUnmanaged=true requires an explicitly user-selected box; operating it does not rename it or adopt ownership.",
+      "Never blindly replay sends after timeout, disconnect, or execution=unknown. Read state and inspect before deciding on a fresh action. No automatic retries or exactly-once guarantee.",
+      "Runtime actions do not write DSL or revision. Downstream patches can have their own structural, audio, MIDI, or other external effects; send only when those effects are authorized.",
+      "State unavailable means no supported side-effect-free getter, not zero. Live UI values are host-domain values, not normalized floats; Ableton automation integration is not tested by standalone Max verification.",
+      "Supported classes: number, flonum, button, toggle, textbutton, slider, dial, pictctrl, rslider, pictslider, multislider, kslider, umenu, tab, radiogroup, matrixctrl, message, gain~, incdec, live.button, live.toggle, live.text, live.dial, live.slider, live.numbox, live.menu, live.tab, live.gain~. This is not arbitrary Max object access.",
+      "textbutton/live.text set/symbol/setsymbol require mode=1. radiogroup checkbox lists require itemtype=1 and exact size; flagmode selects scalar masks. matrixctrl clear emits; kslider clear is silent. Consult the installed maxforge-live runtime UI reference for the class table.",
+    ],
+    relatedTools: ["maxforge_list_patches", "maxforge_inspect_patch", "maxforge_read_runtime", "maxforge_send_message"],
+  },
   workflow: {
     summary: "Safe desired-state workflow for inspecting and changing one live Max patch.",
     steps: [
@@ -683,6 +706,21 @@ export function createMaxforgeActions(
   options: CreateActionsOptions
 ): ActionRegistry {
   const server = new ActionRegistry();
+
+  for (const sending of [false, true]) {
+    server.registerTool(sending ? "maxforge_send_message" : "maxforge_read_runtime", {
+      title: sending ? "Send a runtime UI message" : "Read runtime UI state without output",
+      description: sending
+        ? "Dispatch one supported message to a basic UI object's left inlet, without adopting ownership or editing DSL. Copy instanceId from list and target plus structure token from inspection. int/float/list normally output; set is class-specific. Read supportedMessages first and consult help runtime. Completion confirms native dispatch, not downstream effects. Never automatically retry after timeout/disconnection."
+        : "Read basic UI state via Max getvalueof without firing an outlet. Returns supportedMessages and explicit unavailable state when no safe getter exists. Copy instanceId from list and target plus structure token from inspection. No ownership adoption.",
+      inputSchema: sending ? runtimeSendSchema : runtimeRequestSchema,
+      outputSchema: runtimeResultSchema,
+      annotations: { readOnlyHint: !sending, destructiveHint: sending, idempotentHint: !sending },
+    }, async (request) => {
+      try { return toolResult({ ...await options.transport.runtime(request) }); }
+      catch (error) { return toolError(error); }
+    });
+  }
 
   server.registerTool(
     "maxforge_help",
@@ -1675,6 +1713,11 @@ function toolError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return {
     content: [{ type: "text" as const, text: message }],
+    ...(error instanceof RuntimeOperationError ? { structuredContent: {
+      code: error.code, message, execution: error.execution,
+      ...(error.requestId ? { requestId: error.requestId } : {}),
+      retrySafe: false,
+    } } : {}),
     isError: true,
   };
 }

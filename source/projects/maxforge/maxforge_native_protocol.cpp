@@ -187,6 +187,24 @@ auto is_safe_set_attribute(const std::string &attribute) -> bool {
 	return reserved.count(attribute) == 0;
 }
 
+auto is_snapshot_text(const std::string &class_name) -> bool {
+	return class_name != "number" && class_name != "flonum" && class_name != "live.numbox";
+}
+
+auto is_snapshot_attribute(const std::string &attribute, const std::string &class_name) -> bool {
+	// UI state is not patch structure. live.* exposes its volatile value as valueof.
+	static const std::unordered_set<std::string> excluded{
+		"patching_rect", "text", "comment", "value", "valueof"
+	};
+	// Child patchers expose their editor's session state as object attributes.
+	// Window placement, locking and save bookkeeping are not box/cord structure.
+	static const std::unordered_set<std::string> patcher_session{
+		"rect", "defrect", "dirty", "locked", "tracing"
+	};
+	if(class_name == "jpatcher" && patcher_session.count(attribute)) return false;
+	return is_safe_set_attribute(attribute) && excluded.count(attribute) == 0;
+}
+
 auto expected_variable_name(
 	const std::string &scope,
 	const std::string &id

@@ -116,6 +116,8 @@ describe("maxforge HTTP protocol surface", () => {
       await client.connect();
       const tools = await client.request(2, "tools/list", {});
       expect(toolNames(tools)).toEqual([
+        "maxforge_read_runtime",
+        "maxforge_send_message",
         "maxforge_help",
         "maxforge_status",
         "maxforge_catalog",
@@ -139,7 +141,11 @@ describe("maxforge HTTP protocol surface", () => {
         "maxforge_get_working_source",
       ]);
       const definitions = toolDefinitions(tools);
-      expect(definitions).toHaveLength(21);
+      expect(definitions).toHaveLength(23);
+      expect(definitions.find(tool => tool.name === "maxforge_read_runtime")?.annotations)
+        .toMatchObject({ readOnlyHint: true, idempotentHint: true });
+      expect(definitions.find(tool => tool.name === "maxforge_send_message")?.annotations)
+        .toMatchObject({ readOnlyHint: false, idempotentHint: false });
       expect(definitions.every((tool) => tool.outputSchema?.type === "object"))
         .toBe(true);
       expect(
@@ -874,6 +880,7 @@ function toolDefinitions(message: ActionResponse): Array<{
 }
 
 class FakeTransport implements PatchPlanTransport {
+  async runtime(): Promise<never> { throw new Error("Runtime not configured in this fixture"); }
   async apply(
     patcherId: string,
     plan: PatchPlan

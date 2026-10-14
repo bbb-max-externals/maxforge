@@ -65,7 +65,8 @@ export class DslPatchAdapter implements PatchGraphAdapter {
       outlettype: resolved?.def.outlettype ?? base.outlettype,
       patchingRect: snapshot.patchingRect,
       text: hasStructuralText(base.maxclass) ? snapshot.text : undefined,
-      comment: snapshot.comment,
+      // Max exposes an empty inlet/outlet assist comment even when none was set.
+      comment: snapshot.comment === "" && base.comment === undefined ? undefined : snapshot.comment,
       attributes: resolveSnapshotAttributes(snapshot, base, baseline),
     };
   }

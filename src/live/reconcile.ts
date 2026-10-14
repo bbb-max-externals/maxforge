@@ -497,7 +497,7 @@ function defaultLiveBox(
     maxclass: snapshot.maxclass,
     patchingRect: snapshot.patchingRect,
     text: snapshotText(snapshot),
-    comment: snapshot.comment,
+    comment: snapshot.comment === "" && base.comment === undefined ? undefined : snapshot.comment,
     attributes: resolveSnapshotAttributes(snapshot, base, baseline),
   };
 }

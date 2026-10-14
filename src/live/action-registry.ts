@@ -1,5 +1,8 @@
 import * as z from "zod/v4";
 
+/** Only request validation failed; no handler or native mutation ran. */
+export class ActionInputError extends Error {}
+
 export interface ActionResult {
   content: Array<{ type: "text"; text: string }>;
   structuredContent?: Record<string, unknown>;
@@ -30,7 +33,9 @@ export class ActionRegistry {
     this.actions.set(name, {
       definition,
       call: async (input) => {
-        const result = await handler(definition.inputSchema.parse(input));
+        const parsed = definition.inputSchema.safeParse(input);
+        if (!parsed.success) throw new ActionInputError(parsed.error.message);
+        const result = await handler(parsed.data);
         if (!result.isError) definition.outputSchema.parse(result.structuredContent);
         return result;
       },

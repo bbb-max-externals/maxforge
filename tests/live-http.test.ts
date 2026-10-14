@@ -53,7 +53,7 @@ describe("Max-owned HTTP service", () => {
       apiVersion: number; tools: Array<{ name: string; inputSchema: { type: string; required?: string[] } }>;
     };
     expect(tools.apiVersion).toBe(1);
-    expect(tools.tools).toHaveLength(21);
+    expect(tools.tools).toHaveLength(23);
     expect(tools.tools.every((tool: { inputSchema: { type: string } }) => tool.inputSchema.type === "object")).toBe(true);
     expect(tools.tools.find((tool) => tool.name === "maxforge_inspect_patch")?.inputSchema.required)
       .toEqual(["patcherId", "scope"]);
@@ -62,6 +62,15 @@ describe("Max-owned HTTP service", () => {
     const call = (action: string, body: string) => fetch(`${url}/v1/tools/${action}`, { method: "POST", headers, body });
     expect((await call("maxforge_help", "{")).status).toBe(400);
     expect((await call("maxforge_help", '{"topic":"invalid"}')).status).toBe(400);
+    const invalidRuntime = await call("maxforge_send_message", JSON.stringify({
+      patcherId: "qa", scope: "qa", instanceId: "lifetime", expectedStructureToken: "0".repeat(16),
+      target: { targetPath: [], runtimeId: "obj-1", varName: "", maxclass: "number" },
+      message: { selector: "int", atoms: [null] },
+    }));
+    expect(invalidRuntime.status).toBe(400);
+    expect(await invalidRuntime.json()).toMatchObject({
+      code: "INVALID_ARGUMENT", execution: "not_executed", retrySafe: false,
+    });
     expect((await call("maxforge_unknown", "{}")).status).toBe(400);
     expect((await fetch(`${url}/missing`, { headers })).status).toBe(404);
     expect((await fetch(`${url}/v1/tools/maxforge_help`, { method: "POST", headers: { Authorization: headers.Authorization }, body: "{}" })).status).toBe(415);

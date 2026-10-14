@@ -177,6 +177,44 @@ independently of the optional npm CLI.
 
 ## Local checks
 
+### Runtime UI host acceptance
+
+From the candidate checkout, with its complete package installed and a fresh
+Max process, generate isolated fixtures (never use a user's working patch):
+
+```bash
+runtime_qa_dir=$(mktemp -d /tmp/maxforge-runtime-qa.XXXXXX)
+node scripts/runtime-ui-smoke.mjs generate "$runtime_qa_dir"
+```
+
+Open the generated `runtime-a.maxpat` and `runtime-b.maxpat` in Max. Then run:
+
+```bash
+node scripts/runtime-ui-smoke.mjs check "$runtime_qa_dir"
+node scripts/runtime-ui-smoke.mjs managed "$runtime_qa_dir"
+```
+
+The first phase checks 28 classes in 32 configurations, 123 native dispatches,
+silent reads/sets, actual outlet counters, cross-patch isolation, rejection of
+unmanaged targets without opt-in, and invalid class-specific arguments. The
+second creates a dedicated managed patch, verifies same-name nested routing,
+input versus silent set, unchanged structure/DSL, structured errors, then saves
+and closes it. Open its `managed-a.maxpat` in Max and run:
+
+```bash
+node scripts/runtime-ui-smoke.mjs reopen "$runtime_qa_dir"
+```
+
+This verifies a new instance identity, rejection of stale requests, a no-op DSL
+preview, downstream output, and saving/closing again. Keep the JSON evidence in
+the temporary directory. On failure, inspect before any replay. Restart Max and
+use new fixtures for a fresh test run: reusing the managed patch ID in the same
+service session retains its acknowledged DSL history. Close only these test
+patches at cleanup. These tests do not cover Ableton Live automation, audio/DSP,
+or every possible UI mode; run native Windows CI separately from macOS host QA.
+
+### Package metadata
+
 Source/package metadata can be checked without building an external:
 
 ```bash

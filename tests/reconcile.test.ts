@@ -7,11 +7,26 @@ import {
 } from "../src/max/patch-graph.js";
 import { compileDslToPatchGraph } from "../src/max/dsl-patch-graph.js";
 import { MaxforgePatcherSnapshot } from "../src/max/patch-protocol.js";
-import { reconcilePatchGraphs } from "../src/live/reconcile.js";
+import { reconcilePatchGraphs, reconstructManagedGraph } from "../src/live/reconcile.js";
+import { DslPatchAdapter } from "../src/live/dsl-patch-adapter.js";
 
 const database = dbData as unknown as ObjectDatabase;
 
 describe("live patch reconciliation", () => {
+  it("does not invent a DSL edit for Max's default empty outlet comment", () => {
+    const base = graph('nested = p nested {\nresult = outlet at(80, 160)\n}');
+    const current = snapshot(base);
+    const parent = base.patcher.boxes[0];
+    current.boxes.push(snapshotBox(parent.patcher!.boxes[0], [parent.varName], "runtime-outlet"));
+    const withDefault = { ...current, boxes: current.boxes.map(box =>
+      box.maxclass === "outlet" ? { ...box, comment: "" } : box) };
+    const adapter = new DslPatchAdapter(database);
+    for (const resolver of [undefined, adapter.resolveLiveBox.bind(adapter)]) {
+      const observed = reconstructManagedGraph(base, withDefault, undefined, resolver);
+      expect(observed.conflicts).toEqual([]);
+      expect(observed.graph.revision).toBe(base.revision);
+    }
+  });
   it("builds live-to-merged operations while retaining the native base revision", () => {
     const base = graph("osc = cycle~ 440 at(10, 20)");
     const desired = graph(

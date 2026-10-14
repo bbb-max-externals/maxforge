@@ -2,6 +2,7 @@ import { createServer, IncomingMessage } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { ActionRegistry } from "./action-registry.js";
+import { ActionInputError } from "./action-registry.js";
 
 export async function startHttpServer(actions: ActionRegistry, token: string) {
   if (token.length < 32) throw new Error("HTTP service requires a strong token");
@@ -36,7 +37,11 @@ export async function startHttpServer(actions: ActionRegistry, token: string) {
         reply(200, result);
       } else reply(404, { error: "Unknown API route" });
     } catch (error) {
-      reply(400, { error: error instanceof Error ? error.message : String(error) });
+      reply(400, { error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof ActionInputError ? {
+          code: "INVALID_ARGUMENT", execution: "not_executed", retrySafe: false,
+        } : {}),
+      });
     }
   });
   server.requestTimeout = 30_000;

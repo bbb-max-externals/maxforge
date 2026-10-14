@@ -1,6 +1,6 @@
 ---
 name: maxforge-live
-description: Set up maxforge, migrate from its old MCP integration, and inspect or edit live Max/MSP patches through local HTTP. Use maxforge for offline patch generation.
+description: Set up maxforge, migrate from its old MCP integration, and inspect, edit, or operate live Max/MSP patches and UI values through local HTTP. Use maxforge for offline patch generation.
 ---
 
 # Maxforge live
@@ -77,6 +77,19 @@ renaming is not just relabeling. When extending an existing patch,
 inspect the surrounding patch context before naming it.
 Do not silently claim an unmanaged human-created box; preserve its ownership
 unless the user explicitly authorizes adoption through the supported workflow.
+
+## Runtime UI control
+
+For values, clicks, bang, or selection, read [runtime UI](references/runtime-ui.md).
+Use `maxforge_read_runtime` and `maxforge_send_message`, not a DSL edit or
+attribute write. Require `runtime_ui_v1` in the selected patch's capabilities.
+Copy `instanceId` from the list and the complete target identity plus structure
+token from inspection. Read without output first; choose an explicitly supported
+class/message. `set` is class-specific, not a universal silent operation.
+Only set `allowUnmanaged` for a user-selected existing box; it does not adopt it.
+Completion acknowledges native dispatch, not downstream or audio completion.
+Never automatically retry an ambiguous send. Do not install an update merely
+because the connected external lacks this capability.
 
 ## Constraints
 

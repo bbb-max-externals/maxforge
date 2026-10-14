@@ -69,6 +69,8 @@ auto evaluate_save_completion(
 	bool timed_out
 ) -> save_completion_state;
 auto is_safe_set_attribute(const std::string &attribute) -> bool;
+auto is_snapshot_attribute(const std::string &attribute, const std::string &class_name = {}) -> bool;
+auto is_snapshot_text(const std::string &class_name) -> bool;
 auto expected_variable_name(
 	const std::string &scope,
 	const std::string &id

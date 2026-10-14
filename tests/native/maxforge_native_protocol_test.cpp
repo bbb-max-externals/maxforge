@@ -189,6 +189,21 @@ void test_save_completion() {
 
 void test_safe_set_attributes() {
 	require(sync_protocol::is_safe_set_attribute("patching_rect"), "position rejected");
+	require(!sync_protocol::is_snapshot_attribute("value"), "number state entered structure");
+	require(!sync_protocol::is_snapshot_text("number"), "number display entered structure");
+	require(!sync_protocol::is_snapshot_text("flonum"), "flonum display entered structure");
+	require(!sync_protocol::is_snapshot_text("live.numbox"), "live.numbox display entered structure");
+	require(sync_protocol::is_snapshot_text("message"), "message content omitted");
+	require(sync_protocol::is_snapshot_text("textbutton"), "button label omitted");
+	require(sync_protocol::is_snapshot_text("newobj"), "object definition omitted");
+	require(!sync_protocol::is_snapshot_attribute("valueof"), "live UI state entered structure");
+	require(sync_protocol::is_snapshot_attribute("minimum"), "range configuration omitted");
+	require(sync_protocol::is_snapshot_attribute("textcolor"), "appearance omitted");
+	for(const auto *attribute : {"rect", "defrect", "dirty", "locked", "tracing"}) {
+		require(!sync_protocol::is_snapshot_attribute(attribute, "jpatcher"), "patcher session state entered structure");
+	}
+	require(sync_protocol::is_snapshot_attribute("locked", "other"), "unrelated object configuration omitted");
+	require(sync_protocol::is_snapshot_attribute("globalpatchername", "jpatcher"), "named patcher identity omitted");
 	require(sync_protocol::is_safe_set_attribute("presentation_rect"), "presentation rejected");
 	require(sync_protocol::is_safe_set_attribute("textcolor"), "color rejected");
 	require(sync_protocol::is_safe_set_attribute("_private_style"), "underscore rejected");

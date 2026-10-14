@@ -23,7 +23,9 @@ describe("Max-owned service example", () => {
     expect(result.errors).toEqual([]);
     expect(result.success).toBe(true);
 
-    const boxes = result.output!.patcher.boxes.map(({ box }) => box);
+    const allBoxes = result.output!.patcher.boxes.map(({ box }) => box);
+    const boxes = allBoxes.filter(box => box.maxclass !== "comment");
+    expect(allBoxes.find(box => box.maxclass === "comment")?.text).toContain("maxforge_read_runtime");
     expect(boxes).toHaveLength(1);
     expect(result.output!.patcher.lines).toEqual([]);
     expect(boxes[0]).toMatchObject({

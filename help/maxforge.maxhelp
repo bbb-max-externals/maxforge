@@ -70,6 +70,22 @@
           ],
           "text": "maxforge"
         }
+      },
+      {
+        "box": {
+          "id": "obj-runtime_help",
+          "maxclass": "comment",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            40,
+            100,
+            550,
+            100
+          ],
+          "text": "One maxforge object starts the shared HTTP service.\\nDiscover /v1/tools; use maxforge_help topic runtime for UI control.\\nmaxforge_read_runtime reads without output.\\nmaxforge_send_message sends supported int/float/bang/list/set messages.\\nRead the class support table in the maxforge-live skill; never retry an ambiguous send.",
+          "linecount": 5
+        }
       }
     ],
     "lines": []

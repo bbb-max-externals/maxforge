@@ -33,6 +33,93 @@ afterEach(async () => {
 });
 
 describe("MaxforgeWebSocketBridge", () => {
+  it("routes runtime reads/sends and rejects wrong clients without changing revision", async () => {
+    const bridge = createBridge();
+    const { port } = await bridge.start();
+    const client = await connect(port);
+    const other = await connect(port);
+    await register(bridge, client, { ...registration("patch-a", "voices", false), capabilities: ["runtime_ui_v1"] });
+    await register(bridge, other, { ...registration("patch-b", "voices", false), capabilities: ["runtime_ui_v1"] });
+    const target = { targetPath: ["sub"], runtimeId: "obj-2", varName: "human", maxclass: "number" };
+    const input = { patcherId: "patch-a", scope: "voices", instanceId: "instance_patch-a",
+      expectedStructureToken: "0".repeat(16), target, allowUnmanaged: true };
+    for (const message of [undefined, { selector: "set", atoms: [12] }]) {
+      client.once("message", async (data) => {
+        const request = JSON.parse(data.toString());
+        expect(request).toMatchObject({ ...input, type: "maxforge.runtime.request" });
+        const event = { type: "maxforge.runtime.result", requestId: request.requestId,
+          patcherId: input.patcherId, scope: input.scope, instanceId: input.instanceId,
+          operation: message ? "send" : "read", execution: "completed", target,
+          managed: false, objectClass: "number", supportedMessages: ["bang", "int", "float", "set"],
+          state: { status: "available", values: [12] } };
+        other.send(JSON.stringify(event));
+        await websocketRoundTrip(other);
+        expect(bridge.getPendingOperationCount()).toBe(1);
+        client.send(JSON.stringify(event));
+      });
+      const result = await bridge.runtime({ ...input, ...(message ? { message } : {}) });
+      expect(result.state).toEqual({ status: "available", values: [12] });
+      expect(bridge.getLiveRevision("patch-a", "voices")).toBeNull();
+      expect(bridge.getPendingOperationCount()).toBe(0);
+    }
+    await expect(bridge.runtime({ ...input, instanceId: "old-instance" })).rejects.toMatchObject({ execution: "not_executed" });
+  });
+
+  it("reports native runtime rejection, ambiguous timeout, and ignores late ack without replay", async () => {
+    const bridge = createBridge(undefined, 40);
+    const { port } = await bridge.start();
+    const client = await connect(port);
+    await register(bridge, client, { ...registration("patch-a", "voices", false), capabilities: ["runtime_ui_v1"] });
+    const input = { patcherId: "patch-a", scope: "voices", instanceId: "instance_patch-a",
+      expectedStructureToken: "0".repeat(16), target: { targetPath: [], runtimeId: "obj-2", varName: "", maxclass: "button" },
+      message: { selector: "bang", atoms: [] } };
+    client.once("message", (data) => {
+      const request = JSON.parse(data.toString());
+      client.send(JSON.stringify({ type: "maxforge.runtime.error", requestId: request.requestId,
+        patcherId: input.patcherId, scope: input.scope, code: "TARGET_NOT_FOUND", message: "Deleted", execution: "not_executed" }));
+    });
+    await expect(bridge.runtime(input)).rejects.toMatchObject({ code: "TARGET_NOT_FOUND", execution: "not_executed" });
+    let sends = 0;
+    client.on("message", () => sends++);
+    await expect(bridge.runtime(input)).rejects.toMatchObject({ code: "RUNTIME_TIMEOUT", execution: "unknown" });
+    expect(sends).toBe(1);
+    expect(bridge.getPendingOperationCount()).toBe(0);
+    client.send(JSON.stringify({ type: "maxforge.runtime.error", requestId: "late",
+      patcherId: input.patcherId, scope: input.scope, code: "LATE", message: "late", execution: "unknown" }));
+    await websocketRoundTrip(client);
+    expect(bridge.getPendingOperationCount()).toBe(0);
+  });
+
+  it("serializes runtime operations and reports disconnect as unknown without replay", async () => {
+    const bridge = createBridge();
+    const { port } = await bridge.start();
+    const client = await connect(port);
+    await register(bridge, client, { ...registration("patch-a", "voices", false), capabilities: ["runtime_ui_v1"] });
+    const input = { patcherId: "patch-a", scope: "voices", instanceId: "instance_patch-a",
+      expectedStructureToken: "0".repeat(16), target: { targetPath: [], runtimeId: "obj-2", varName: "", maxclass: "button" },
+      message: { selector: "bang", atoms: [] } };
+    const pending = bridge.runtime(input);
+    const failed = expect(pending).rejects.toMatchObject({ code: "RUNTIME_TRANSPORT_ERROR", execution: "unknown" });
+    await expect(bridge.runtime(input)).rejects.toMatchObject({ execution: "not_executed" });
+    await expect(bridge.inspect("patch-a", "voices")).rejects.toThrow("pending");
+    client.close();
+    await failed;
+    expect(bridge.getPendingOperationCount()).toBe(0);
+  });
+
+  it("gates runtime operations on version, capability, and explicit scope", async () => {
+    const bridge = createBridge();
+    const { port } = await bridge.start();
+    const client = await connect(port);
+    await register(bridge, client, registration("patch-a", "voices", false));
+    const input = { patcherId: "patch-a", scope: "voices", instanceId: "instance_patch-a",
+      expectedStructureToken: "0".repeat(16), target: { targetPath: [], runtimeId: "obj-2", varName: "", maxclass: "number" } };
+    await expect(bridge.runtime(input)).rejects.toThrow("runtime_ui_v1");
+    await expect(bridge.runtime({ ...input, scope: "wrong" })).rejects.toMatchObject({ execution: "not_executed" });
+    client.send(JSON.stringify({ ...registration("patch-a", "voices", false), externalVersion: "old", capabilities: ["runtime_ui_v1"] }));
+    await websocketRoundTrip(client);
+    await expect(bridge.runtime(input)).rejects.toThrow("version");
+  });
   it("registers multiple patches and routes apply to the selected patcherId", async () => {
     const bridge = createBridge();
     const status = await bridge.start();
