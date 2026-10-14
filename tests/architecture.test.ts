@@ -30,4 +30,11 @@ describe("module boundaries", () => {
     expect(liveIndex).not.toContain("../max/");
     expect(liveIndex).not.toContain("./dsl-patch-adapter.js");
   });
+
+  it("passes native error messages as data, not printf format strings", () => {
+    const native = source("source/projects/maxforge/maxforge.cpp");
+    expect(native).not.toMatch(/cerr\s*<</);
+    expect(native.match(/c74::max::object_error\(maxobj\(\), "%s", message\.c_str\(\)\);/g))
+      .toHaveLength(2);
+  });
 });

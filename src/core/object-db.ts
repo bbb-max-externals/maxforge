@@ -11,7 +11,7 @@ export async function loadDatabase(): Promise<ObjectDatabase> {
   if (db) return db;
   const url = new URL("../../data/objects.json", import.meta.url);
   const fs = await import("fs/promises");
-  const raw = await fs.readFile(url.pathname.replace(/^\/C:/, "C:"), "utf-8");
+  const raw = await fs.readFile(url, "utf-8");
   db = JSON.parse(raw);
   return db!;
 }

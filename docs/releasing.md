@@ -138,7 +138,17 @@ npm run pack:dry-run
 ```
 
 Commit and push the synchronized version files. Wait for the `main` workflow to
-succeed before publishing either distribution. Create the matching Git tag and
+succeed before publishing either distribution. Before publishing, extract the
+signed CI package and test it as a **real directory** in the user's standard
+`Documents/Max 9/Packages/maxforge` location, not only through a symlink or in a
+space-free temporary directory. With Max closed, preserve any existing package
+outside its search paths and replace the whole package for this check. Verify
+the loaded binary's path, API discovery, compatible patch registration, catalog
+loading, and save/reopen behavior; restore the original installation afterward.
+The automated installed-catalog tests also cover Japanese, percent signs, and
+hash signs, but do not replace the real Max host check.
+
+Create the matching Git tag and
 GitHub Release from that exact commit first:
 
 ```bash

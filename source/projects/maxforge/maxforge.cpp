@@ -2044,7 +2044,7 @@ private:
 
 	void report_transport_error(const std::string &message) {
 		if(message != last_transport_error_) {
-			cerr << message << c74::min::endl;
+			c74::max::object_error(maxobj(), "%s", message.c_str());
 			last_transport_error_ = message;
 		}
 		status_output.send("error", message);
@@ -2803,7 +2803,7 @@ private:
 		const std::string &event_patcher_id = "",
 		const std::string &event_scope = ""
 	) {
-		cerr << message << c74::min::endl;
+		c74::max::object_error(maxobj(), "%s", message.c_str());
 		status_output.send("error", message);
 		std::string resolved_patcher_id{event_patcher_id};
 		std::string resolved_scope{event_scope};

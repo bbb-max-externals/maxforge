@@ -89,7 +89,9 @@ Install the complete Max package from
 create one `maxforge` object. Nothing else needs to be placed or started.
 The object automatically launches the bundled service; other patches share it.
 
-Use a v0.6.0 or newer release: earlier packages contain the removed MCP external.
+Use a v0.6.1 or newer release: v0.6.0 cannot load its catalog from paths containing
+spaces or other URL-escaped characters, including the default `Max 9` directory.
+Releases before v0.6.0 contain the removed MCP external.
 Download `maxforge-v<VERSION>.zip` and its matching `.sha256`, verify the checksum,
 then extract the complete `maxforge` folder into your Max 9 `Packages` directory
 (normally `Documents/Max 9/Packages`). Close Max before replacing a package and
