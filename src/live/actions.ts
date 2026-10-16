@@ -414,6 +414,7 @@ const liveChangeReviewSchema = z.object({
   structureToken: structureTokenSchema,
   acknowledgedRevision: revisionSchema.optional(),
   observedManagedRevision: revisionSchema.optional(),
+  liveRevision: revisionSchema.optional(),
   canAdopt: z.boolean(),
   adoptionBlockedReason: z.string().optional(),
   conflicts: z.array(reconciliationConflictSchema),
@@ -629,6 +630,7 @@ const HELP_CONTENT = {
       "If status reports a pending scope after a timeout, reconnect that Max patch before compiling or applying; maxforge resolves the recorded base/target revisions instead of guessing.",
       "If the pending scope reports a third live revision, call maxforge_inspect_pending_apply. Rebase only with its exact live revision and structure token plus trusted complete current DSL; never delete the state file or guess the source.",
       "If inspect reports live changes, call maxforge_review_live_changes and treat its classified signals as evidence rather than intent.",
+      "If Max no longer holds the acknowledged revision (a reopened saved file or reverted unsaved changes), review reports liveRevision; adopt the reviewed live patch to continue instead of supplying an older currentDsl.",
       "Use maxforge_get_live_edit_history when operation order or intermediate states could change the interpretation; account for droppedEvents and comparisonBasis.",
       "If saved-path warnings remain ambiguous, inspect both identities with maxforge_get_patch_history_identity. Only after the human confirms the relationship may you close the source and call maxforge_resolve_patch_history_identity.",
       "If accepted managed edits should become the new baseline, call maxforge_adopt_live_changes with the exact reviewed structure token, then retain its sourceRef.",
@@ -1184,7 +1186,7 @@ export function createMaxforgeActions(
     {
       title: "Review human edits in a live Max patch",
       description:
-        "Turn live changes since the last acknowledged apply into neutral, structured evidence for agent intent inference. Reports exact before/after changes, affected managed identities, routing/layout/configuration signals, correlated edit clusters, interpretation risks, and whether the reviewed state can be safely adopted. This tool never claims why the human edited the patch and never mutates Max.",
+        "Turn live changes since the last acknowledged apply into neutral, structured evidence for agent intent inference. Reports exact before/after changes, affected managed identities, routing/layout/configuration signals, correlated edit clusters, interpretation risks, and whether the reviewed state can be safely adopted. liveRevision is reported when Max no longer holds the acknowledged revision, for example after reopening a saved file or reverting unsaved applied changes; the differences then appear as live changes that adoption can accept. This tool never claims why the human edited the patch and never mutates Max.",
       inputSchema: z.object({
         patcherId: patcherIdSchema.describe("Registered target Max patch ID"),
         scope: scopeSchema.describe("Exact managed scope of the target patch"),
@@ -1223,6 +1225,7 @@ export function createMaxforgeActions(
           ...(result.observedManagedRevision
             ? { observedManagedRevision: result.observedManagedRevision }
             : {}),
+          ...(result.liveRevision ? { liveRevision: result.liveRevision } : {}),
           canAdopt: result.canAdopt,
           ...(result.adoptionBlockedReason
             ? { adoptionBlockedReason: result.adoptionBlockedReason }

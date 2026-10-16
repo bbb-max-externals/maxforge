@@ -1309,6 +1309,125 @@ describe("MaxforgePatchService", () => {
     expect(after.changes).toEqual([]);
   });
 
+  it("adopts a live patch that reverted to an earlier acknowledged revision", async () => {
+    const transport = new FakeTransport();
+    const store = new MemoryStateStore();
+    const service = createService(transport, store);
+    const savedDsl = "osc = cycle~ 440 at(50, 50)";
+    const unsavedDsl = `${savedDsl}\ngain = *~ 0.5 at(50, 120)\nosc -> gain`;
+    transport.snapshotAfterApply = snapshotForDsl(savedDsl, "voices");
+    const saved = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: savedDsl,
+    });
+    transport.snapshotAfterApply = snapshotForDsl(unsavedDsl, "voices");
+    const unsaved = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: unsavedDsl,
+    });
+    transport.snapshotAfterApply = undefined;
+
+    // Reopening the saved file restores the earlier structure and revision.
+    transport.snapshot = snapshotForDsl(savedDsl, "voices");
+    transport.liveRevisions.set("patch-a:voices", saved.plan.targetRevision);
+    expect(() => service.compilePlan({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: unsavedDsl,
+    })).toThrow("review and adopt the live patch");
+    expect(() => service.compilePlan({
+      patcherId: "patch-a",
+      scope: "voices",
+      currentDsl: savedDsl,
+      desiredDsl: unsavedDsl,
+    })).toThrow("does not match the acknowledged revision");
+
+    const review = await service.reviewLiveChanges("patch-a", "voices");
+    expect(review).toMatchObject({
+      acknowledgedRevision: unsaved.plan.targetRevision,
+      liveRevision: saved.plan.targetRevision,
+      observedManagedRevision: saved.plan.targetRevision,
+      canAdopt: true,
+    });
+    expect(review.managedChangeCount).toBeGreaterThan(0);
+
+    const plansBeforeAdopt = transport.plans.length;
+    const adopted = await service.adoptLiveChanges({
+      patcherId: "patch-a",
+      scope: "voices",
+      expectedStructureToken: review.structureToken,
+    });
+    expect(adopted).toMatchObject({
+      previousRevision: unsaved.plan.targetRevision,
+      adoptedRevision: saved.plan.targetRevision,
+      liveRevision: saved.plan.targetRevision,
+      revisionAdvanced: true,
+      statePersisted: true,
+    });
+    // Max already holds the adopted revision, so nothing is sent.
+    expect(transport.plans).toHaveLength(plansBeforeAdopt);
+    expect(store.state?.managedGraphs.get("patch-a:voices")?.revision).toBe(
+      saved.plan.targetRevision
+    );
+
+    const next = service.compilePlan({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: unsavedDsl,
+    });
+    expect(next.plan.baseRevision).toBe(saved.plan.targetRevision);
+    expect(next.plan.targetRevision).toBe(unsaved.plan.targetRevision);
+  });
+
+  it("adopts edits made on top of a reverted patch from the revision Max reports", async () => {
+    const transport = new FakeTransport();
+    const service = createService(transport);
+    const savedDsl = "osc = cycle~ 440 at(50, 50)";
+    transport.snapshotAfterApply = snapshotForDsl(savedDsl, "voices");
+    const saved = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: savedDsl,
+    });
+    transport.snapshotAfterApply = snapshotForDsl(
+      `${savedDsl}\ngain = *~ 0.5 at(50, 120)`,
+      "voices"
+    );
+    await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: `${savedDsl}\ngain = *~ 0.5 at(50, 120)`,
+    });
+    transport.snapshotAfterApply = undefined;
+
+    const reopened = snapshotForDsl(savedDsl, "voices");
+    transport.snapshot = {
+      ...reopened,
+      boxes: reopened.boxes.map((box) => ({
+        ...box,
+        patchingRect: [120, 80, 80, 22],
+      })),
+    };
+    transport.liveRevisions.set("patch-a:voices", saved.plan.targetRevision);
+    const review = await service.reviewLiveChanges("patch-a", "voices");
+    expect(review.canAdopt).toBe(true);
+    expect(review.observedManagedRevision).not.toBe(saved.plan.targetRevision);
+
+    const adopted = await service.adoptLiveChanges({
+      patcherId: "patch-a",
+      scope: "voices",
+      expectedStructureToken: review.structureToken,
+    });
+    expect(adopted.adoptedRevision).toBe(review.observedManagedRevision);
+    expect(transport.plans.at(-1)).toMatchObject({
+      baseRevision: saved.plan.targetRevision,
+      targetRevision: review.observedManagedRevision,
+      operations: [],
+    });
+  });
+
   it("rejects adoption when the patch changed after the agent reviewed it", async () => {
     const transport = new FakeTransport();
     const service = createService(transport);

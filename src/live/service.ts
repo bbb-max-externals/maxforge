@@ -274,6 +274,11 @@ export interface ReviewLiveChangesResult extends InspectPatchResult {
   readonly structureToken: string;
   readonly acknowledgedRevision?: string;
   readonly observedManagedRevision?: string;
+  /**
+   * Max's revision when it differs from the acknowledged revision, for example
+   * after reopening a saved file or reverting unsaved applied changes.
+   */
+  readonly liveRevision?: string;
   readonly canAdopt: boolean;
   readonly adoptionBlockedReason?: string;
   readonly conflicts: readonly PatchReconciliationConflict[];
@@ -1040,11 +1045,17 @@ export class MaxforgePatchService {
           "No acknowledged managed graph exists for this patch and scope.",
       };
     }
-    this.assertInspectionRevision(patcherId, scope, acknowledged, snapshot);
+    const liveRevision = this.divergedLiveRevision(
+      patcherId,
+      scope,
+      acknowledged,
+      snapshot
+    );
     if (!baseline) {
       return {
         ...base,
         acknowledgedRevision: acknowledged.revision,
+        ...(liveRevision ? { liveRevision } : {}),
         canAdopt: false,
         conflicts: [],
         adoptionBlockedReason:
@@ -1079,6 +1090,7 @@ export class MaxforgePatchService {
       ...base,
       acknowledgedRevision: acknowledged.revision,
       observedManagedRevision: observed.graph.revision,
+      ...(liveRevision ? { liveRevision } : {}),
       canAdopt:
         observed.conflicts.length === 0 &&
         adoptionBlockedReason === undefined &&
@@ -1110,7 +1122,12 @@ export class MaxforgePatchService {
     }
 
     const snapshot = await this.transport.inspect(patcherId, scope);
-    this.assertInspectionRevision(patcherId, scope, acknowledged, snapshot);
+    const liveRevision = this.divergedLiveRevision(
+      patcherId,
+      scope,
+      acknowledged,
+      snapshot
+    );
     if (snapshot.structureToken !== expectedStructureToken) {
       throw new Error(
         `Max patch "${patcherId}" changed after review: expected structure token ` +
@@ -1134,19 +1151,22 @@ export class MaxforgePatchService {
     const workingDsl = this.patchAdapter.serialize(observed.graph);
 
     const revisionAdvanced = acknowledged.revision !== observed.graph.revision;
+    // After a revert, Max holds liveRevision rather than the acknowledged one,
+    // so the zero-operation plan must start from what Max reports.
+    const nativeRevision = liveRevision ?? acknowledged.revision;
     let acknowledgement: MaxforgeAppliedEvent | undefined;
-    if (revisionAdvanced) {
+    if (nativeRevision !== observed.graph.revision) {
       const plan: PatchPlan = {
         protocolVersion: 1,
         scope,
-        baseRevision: acknowledged.revision,
+        baseRevision: nativeRevision,
         targetRevision: observed.graph.revision,
         baseStructureToken: snapshot.structureToken,
         operations: [],
         rollbackOperations: [],
       };
       this.pendingApplies.set(key, {
-        baseRevision: acknowledged.revision,
+        baseRevision: nativeRevision,
         nextGraph: observed.graph,
         intentGraph: observed.graph,
         nextSource: workingDsl,
@@ -1173,6 +1193,7 @@ export class MaxforgePatchService {
       structureToken: snapshot.structureToken,
       acknowledgedRevision: acknowledged.revision,
       observedManagedRevision: observed.graph.revision,
+      ...(liveRevision ? { liveRevision } : {}),
       canAdopt: true,
       conflicts: [],
       proposedWorkingDsl: workingDsl,
@@ -1523,13 +1544,25 @@ export class MaxforgePatchService {
     warnings: readonly CompileWarning[];
   } {
     this.resolvePendingApply(targetKey(request.patcherId, request.scope));
-    if (request.currentDsl !== undefined) {
-      return this.patchAdapter.compile(request.currentDsl, request.scope);
-    }
-
     const managed = this.managedGraphs.get(
       targetKey(request.patcherId, request.scope)
     );
+    if (request.currentDsl !== undefined) {
+      const current = this.patchAdapter.compile(request.currentDsl, request.scope);
+      // Apply checks receipts against the retained graph, so a different
+      // currentDsl would prepare a receipt that can never be applied.
+      if (managed && current.graph.revision !== managed.revision) {
+        throw new Error(
+          `Current DSL revision ${current.graph.revision} does not match the ` +
+          `acknowledged revision ${managed.revision} retained for Max patch ` +
+          `"${request.patcherId}" scope "${request.scope}". If Max was ` +
+          "reverted, call maxforge_review_live_changes and " +
+          "maxforge_adopt_live_changes instead of supplying currentDsl."
+        );
+      }
+      return current;
+    }
+
     if (managed) return { graph: managed, warnings: [] };
 
     const liveRevision = this.transport.getLiveRevision(
@@ -1629,10 +1662,17 @@ export class MaxforgePatchService {
 
     const expectedRevision = liveRevision ?? createEmptyPatchGraph(scope).revision;
     if (current.revision !== expectedRevision) {
+      const reverted = this.managedGraphs.get(targetKey(patcherId, scope))
+        ?.revision === current.revision && typeof liveRevision === "string";
       throw new Error(
         `Current DSL revision ${current.revision} does not match Max patch ` +
         `"${patcherId}" scope "${scope}" revision ` +
-        `${liveRevision ?? "uninitialized"}`
+        `${liveRevision ?? "uninitialized"}` +
+        (reverted
+          ? ". Max no longer holds the acknowledged revision (for example " +
+            "after reopening a saved file or reverting unsaved changes); " +
+            "review and adopt the live patch to continue."
+          : "")
       );
     }
   }
@@ -1652,6 +1692,24 @@ export class MaxforgePatchService {
       "manualChanges set to merge, or provide the exact retained source as " +
       "currentDsl (HTTP callers can use currentSourceRef)."
     );
+  }
+
+  /**
+   * Review and adoption accept a live patch whose revision moved away from the
+   * acknowledged one, because they rebuild the managed graph from the live
+   * snapshot. An uninitialized patch is still rejected.
+   */
+  private divergedLiveRevision(
+    patcherId: string,
+    scope: string,
+    acknowledged: PatchGraph,
+    snapshot: MaxforgeSnapshotEvent
+  ): string | undefined {
+    if (snapshot.revision === acknowledged.revision) return undefined;
+    if (snapshot.revision === null) {
+      this.assertInspectionRevision(patcherId, scope, acknowledged, snapshot);
+    }
+    return snapshot.revision ?? undefined;
   }
 
   private assertInspectionRevision(
