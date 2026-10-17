@@ -1065,6 +1065,18 @@ describe("edge cases", () => {
     ]);
   });
 
+  it("uses a kslider default size that Max keeps after reopening", () => {
+    // Max 9 recalculates a 420-wide kslider to 64 px on load, so a 62 px
+    // default reappeared as a manual edit after every reopen.
+    const { ast, errors } = parse("keys = kslider at(10, 20)");
+    expect(errors).toHaveLength(0);
+    const result = compile(ast, db);
+    expect(result.success).toBe(true);
+    expect(result.output!.patcher.boxes[0].box.patching_rect).toEqual([
+      10, 20, 420, 64,
+    ]);
+  });
+
   it.each([
     "osc = cycle~ 440 at(10, 20, 0, 30)",
     "osc = cycle~ 440 at(10, 20, -1, 30)",
