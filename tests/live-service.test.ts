@@ -1513,7 +1513,12 @@ describe("MaxforgePatchService", () => {
       desiredDsl: unsavedDsl,
     });
     transport.snapshotAfterApply = undefined;
-    transport.snapshot = snapshotForDsl(savedDsl, "voices");
+    // Reopening gives the saved dial a different runtime ID from the slider.
+    const reopened = snapshotForDsl(savedDsl, "voices");
+    transport.snapshot = {
+      ...reopened,
+      boxes: reopened.boxes.map((box) => ({ ...box, runtimeId: "obj-2" })),
+    };
     transport.liveRevisions.set("patch-a:voices", saved.plan.targetRevision);
 
     const review = await service.reviewLiveChanges("patch-a", "voices");
