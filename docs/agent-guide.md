@@ -260,7 +260,9 @@ HTTPクライアントからMaxを変更する場合は、次の順序を崩さ�
    `maxforge_adopt_live_changes`を呼び、返された`sourceRef`を保持する。次のdesired stateが
    既にあるなら、後述のprepareへ`manualChanges: "merge"`を指定する。
    保存済みファイルの再読込や未保存apply変更の破棄でMaxが確認済みrevisionを保持していない場合、
-   reviewは`liveRevision`を返す。古い`currentDsl`を渡さず、reviewした現在のパッチをadoptして続ける。
+   Maxが今保持しているDSLが分かっていれば、それを`currentDsl`にして`manualChanges: "merge"`でprepareする。
+   分からなければreviewが`liveRevision`を返すので、reviewした現在のパッチをadoptする。
+   `managed_class_changed`が出た場合はadoptできないため、`currentDsl`の経路を使う。
 8. source転送を最小化する。新規作成・広範な書換えでは完全な`desiredDsl`を一度だけ送る。
    局所変更では`maxforge_get_working_source`の`detail: "matches"`で意味のあるDSL名や文字列を
    検索し、必要なsnippetだけ読む。`detail: "full"`は広範な書換えまたは復旧に限定する。
