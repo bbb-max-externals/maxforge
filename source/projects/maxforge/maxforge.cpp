@@ -2731,6 +2731,12 @@ private:
 			}
 			begin_agent_mutation();
 			agent_mutation_started = true;
+			// Native box/cord creation does not mark the document edited. Mark
+			// it before mutating so close/quit cannot silently drop applied or
+			// partially applied changes.
+			if(!plan.operations.empty()) {
+				c74::max::jpatcher_set_dirty(root_patcher, 1);
+			}
 
 			for(std::size_t index{}; index < plan.operations.size(); index++) {
 				if(!apply_operation(
