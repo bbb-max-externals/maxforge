@@ -34,6 +34,12 @@ export type PatchReconciliationConflict =
       readonly message: string;
     }
   | {
+      readonly kind: "managed_class_changed";
+      readonly targetPath: readonly string[];
+      readonly id?: string;
+      readonly message: string;
+    }
+  | {
       readonly kind: "duplicate_managed_identity";
       readonly targetPath: readonly string[];
       readonly id?: string;
@@ -166,7 +172,8 @@ export function reconstructManagedGraph(
   current: MaxforgePatcherSnapshot,
   baseline?: MaxforgePatcherSnapshot,
   resolveBox: LiveSnapshotBoxResolver = defaultLiveBox,
-  recovery?: PatchGraph
+  recovery?: PatchGraph,
+  options: { readonly rejectClassChanges?: boolean } = {}
 ): ReconstructedManagedState {
   const baseBoxes = flattenBaseBoxes(base.patcher);
   const recoveryBoxes = recovery
@@ -224,6 +231,26 @@ export function reconstructManagedGraph(
         targetPath: box.targetPath,
         id,
         message: `More than one live box uses managed identity "${id}"`,
+      });
+      continue;
+    }
+
+    if (
+      options.rejectClassChanges &&
+      baselineBox &&
+      baselineBox.maxclass !== box.maxclass &&
+      (referenceBox.maxclass !== "newobj" || box.text === undefined)
+    ) {
+      // The reference box would lend its class to a different live object,
+      // for example a saved dial reopened after an unsaved slider replacement.
+      conflicts.push({
+        kind: "managed_class_changed",
+        targetPath: box.targetPath,
+        id,
+        message:
+          `Managed box "${id}" is a ${box.maxclass} in Max but a ` +
+          `${baselineBox.maxclass} in the acknowledged state. Prepare the ` +
+          "known DSL as currentDsl with manualChanges set to merge instead.",
       });
       continue;
     }

@@ -211,6 +211,11 @@ interface PreparedChange extends ResolvedChange {
   readonly receiptId: string;
   readonly patcherId: string;
   readonly catalogDigest: string;
+  /**
+   * The caller's currentDsl, not the retained graph, supplied the base. This
+   * is the recovery path after Max reverts to an earlier revision.
+   */
+  readonly baseFromCurrentDsl: boolean;
 }
 
 const MAX_PREPARED_CHANGES = 64;
@@ -433,11 +438,18 @@ export class MaxforgePatchService {
       resolved = await this.resolveChange(request);
     }
     const receiptId = randomUUID();
+    const retained = this.managedGraphs.get(
+      targetKey(request.patcherId, request.scope)
+    );
     const prepared: PreparedChange = {
       ...resolved,
       receiptId,
       patcherId: request.patcherId,
       catalogDigest: request.catalogDigest,
+      baseFromCurrentDsl:
+        request.currentDsl !== undefined &&
+        retained !== undefined &&
+        retained.revision !== resolved.plan.baseRevision,
     };
     this.storePreparedChange(prepared);
     return this.describePreparedChange(
@@ -781,16 +793,28 @@ export class MaxforgePatchService {
     const key = targetKey(prepared.patcherId, prepared.plan.scope);
     this.resolvePendingApply(key);
     const managed = this.managedGraphs.get(key);
-    if (managed && managed.revision !== prepared.plan.baseRevision) {
+    const liveRevision = this.transport.getLiveRevision(
+      prepared.patcherId,
+      prepared.plan.scope
+    );
+    // A currentDsl receipt is authenticated by Max holding its base revision,
+    // as applyDsl does, rather than by the retained graph it replaces.
+    if (prepared.baseFromCurrentDsl && liveRevision === undefined) {
+      throw new Error(
+        `Prepared change receipt ${prepared.receiptId} needs the connected ` +
+        "Max patch to confirm its currentDsl base revision"
+      );
+    }
+    if (
+      !prepared.baseFromCurrentDsl &&
+      managed &&
+      managed.revision !== prepared.plan.baseRevision
+    ) {
       throw new Error(
         `Prepared change receipt ${prepared.receiptId} is stale: managed revision ` +
         `${managed.revision} no longer matches base revision ${prepared.plan.baseRevision}`
       );
     }
-    const liveRevision = this.transport.getLiveRevision(
-      prepared.patcherId,
-      prepared.plan.scope
-    );
     if (liveRevision === undefined) return;
     const expectedRevision = liveRevision ??
       createEmptyPatchGraph(prepared.plan.scope).revision;
@@ -1068,7 +1092,9 @@ export class MaxforgePatchService {
       snapshot.patcher,
       baseline,
       (box, baseBox, baselineBox) =>
-        this.patchAdapter.resolveLiveBox(box, baseBox, baselineBox)
+        this.patchAdapter.resolveLiveBox(box, baseBox, baselineBox),
+      undefined,
+      { rejectClassChanges: liveRevision !== undefined }
     );
     const representationIssue = adoptionRepresentationIssue(changes);
     let proposedWorkingDsl: string | undefined;
@@ -1143,7 +1169,9 @@ export class MaxforgePatchService {
       snapshot.patcher,
       baseline,
       (box, baseBox, baselineBox) =>
-        this.patchAdapter.resolveLiveBox(box, baseBox, baselineBox)
+        this.patchAdapter.resolveLiveBox(box, baseBox, baselineBox),
+      undefined,
+      { rejectClassChanges: liveRevision !== undefined }
     );
     if (observed.conflicts.length > 0) {
       throw new PatchReconciliationError(observed.conflicts);
@@ -1544,25 +1572,13 @@ export class MaxforgePatchService {
     warnings: readonly CompileWarning[];
   } {
     this.resolvePendingApply(targetKey(request.patcherId, request.scope));
+    if (request.currentDsl !== undefined) {
+      return this.patchAdapter.compile(request.currentDsl, request.scope);
+    }
+
     const managed = this.managedGraphs.get(
       targetKey(request.patcherId, request.scope)
     );
-    if (request.currentDsl !== undefined) {
-      const current = this.patchAdapter.compile(request.currentDsl, request.scope);
-      // Apply checks receipts against the retained graph, so a different
-      // currentDsl would prepare a receipt that can never be applied.
-      if (managed && current.graph.revision !== managed.revision) {
-        throw new Error(
-          `Current DSL revision ${current.graph.revision} does not match the ` +
-          `acknowledged revision ${managed.revision} retained for Max patch ` +
-          `"${request.patcherId}" scope "${request.scope}". If Max was ` +
-          "reverted, call maxforge_review_live_changes and " +
-          "maxforge_adopt_live_changes instead of supplying currentDsl."
-        );
-      }
-      return current;
-    }
-
     if (managed) return { graph: managed, warnings: [] };
 
     const liveRevision = this.transport.getLiveRevision(
@@ -1671,7 +1687,8 @@ export class MaxforgePatchService {
         (reverted
           ? ". Max no longer holds the acknowledged revision (for example " +
             "after reopening a saved file or reverting unsaved changes); " +
-            "review and adopt the live patch to continue."
+            "prepare the DSL Max holds as currentDsl with manualChanges set " +
+            "to merge, or review and adopt the live patch."
           : "")
       );
     }

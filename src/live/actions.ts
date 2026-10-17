@@ -630,7 +630,7 @@ const HELP_CONTENT = {
       "If status reports a pending scope after a timeout, reconnect that Max patch before compiling or applying; maxforge resolves the recorded base/target revisions instead of guessing.",
       "If the pending scope reports a third live revision, call maxforge_inspect_pending_apply. Rebase only with its exact live revision and structure token plus trusted complete current DSL; never delete the state file or guess the source.",
       "If inspect reports live changes, call maxforge_review_live_changes and treat its classified signals as evidence rather than intent.",
-      "If Max no longer holds the acknowledged revision (a reopened saved file or reverted unsaved changes), review reports liveRevision; adopt the reviewed live patch to continue instead of supplying an older currentDsl.",
+      "If Max no longer holds the acknowledged revision (a reopened saved file or reverted unsaved changes), prepare the exact DSL Max now holds as currentDsl with manualChanges set to merge. When that DSL is unknown, review reports liveRevision; adopt the reviewed live patch unless review reports managed_class_changed.",
       "Use maxforge_get_live_edit_history when operation order or intermediate states could change the interpretation; account for droppedEvents and comparisonBasis.",
       "If saved-path warnings remain ambiguous, inspect both identities with maxforge_get_patch_history_identity. Only after the human confirms the relationship may you close the source and call maxforge_resolve_patch_history_identity.",
       "If accepted managed edits should become the new baseline, call maxforge_adopt_live_changes with the exact reviewed structure token, then retain its sourceRef.",

@@ -1337,13 +1337,6 @@ describe("MaxforgePatchService", () => {
       scope: "voices",
       desiredDsl: unsavedDsl,
     })).toThrow("review and adopt the live patch");
-    expect(() => service.compilePlan({
-      patcherId: "patch-a",
-      scope: "voices",
-      currentDsl: savedDsl,
-      desiredDsl: unsavedDsl,
-    })).toThrow("does not match the acknowledged revision");
-
     const review = await service.reviewLiveChanges("patch-a", "voices");
     expect(review).toMatchObject({
       acknowledgedRevision: unsaved.plan.targetRevision,
@@ -1426,6 +1419,127 @@ describe("MaxforgePatchService", () => {
       targetRevision: review.observedManagedRevision,
       operations: [],
     });
+  });
+
+  it("applies a currentDsl receipt after Max reverts to that DSL", async () => {
+    const transport = new FakeTransport();
+    const service = createService(transport);
+    const savedDsl = "osc = cycle~ 440 at(50, 50)";
+    const unsavedDsl = `${savedDsl}\ngain = *~ 0.5 at(50, 120)\nosc -> gain`;
+    transport.snapshotAfterApply = snapshotForDsl(savedDsl, "voices");
+    const saved = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: savedDsl,
+    });
+    transport.snapshotAfterApply = snapshotForDsl(unsavedDsl, "voices");
+    const unsaved = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: unsavedDsl,
+    });
+    transport.snapshot = snapshotForDsl(savedDsl, "voices");
+    transport.snapshotAfterApply = snapshotForDsl(unsavedDsl, "voices");
+    transport.liveRevisions.set("patch-a:voices", saved.plan.targetRevision);
+
+    const prepared = await service.prepareChange({
+      patcherId: "patch-a",
+      scope: "voices",
+      currentDsl: savedDsl,
+      desiredDsl: unsavedDsl,
+      manualChanges: "merge",
+      catalogDigest: "c".repeat(64),
+    });
+    if (!prepared.canApply) throw new Error("expected prepared change receipt");
+    const applied = await service.applyPreparedChange({
+      receiptId: prepared.receiptId,
+      catalogDigest: "c".repeat(64),
+    });
+    expect(applied).toMatchObject({
+      baseRevision: saved.plan.targetRevision,
+      targetRevision: unsaved.plan.targetRevision,
+      baselineCaptured: true,
+    });
+  });
+
+  it("keeps the direct currentDsl merge recovery after a reverted deletion", async () => {
+    const transport = new FakeTransport();
+    const service = createService(transport);
+    const savedDsl =
+      "osc = cycle~ 440 at(50, 50)\ngain = *~ 0.5 at(50, 120)\nosc -> gain";
+    const unsavedDsl = "osc = cycle~ 440 at(50, 50)";
+    transport.snapshotAfterApply = snapshotForDsl(savedDsl, "voices");
+    const saved = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: savedDsl,
+    });
+    transport.snapshotAfterApply = snapshotForDsl(unsavedDsl, "voices");
+    await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: unsavedDsl,
+    });
+    transport.snapshot = snapshotForDsl(savedDsl, "voices");
+    transport.snapshotAfterApply = snapshotForDsl(savedDsl, "voices");
+    transport.liveRevisions.set("patch-a:voices", saved.plan.targetRevision);
+
+    const recovered = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      currentDsl: savedDsl,
+      desiredDsl: savedDsl,
+      manualChanges: "merge",
+    });
+    expect(recovered.plan.operations).toEqual([]);
+    expect(recovered.baselineCaptured).toBe(true);
+  });
+
+  it("refuses to adopt a reverted box whose class differs from the acknowledged state", async () => {
+    const transport = new FakeTransport();
+    const service = createService(transport);
+    const savedDsl = "ui = dial at(50, 50)";
+    const unsavedDsl = "ui = slider at(50, 50)";
+    transport.snapshotAfterApply = snapshotForDsl(savedDsl, "voices");
+    const saved = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: savedDsl,
+    });
+    transport.snapshotAfterApply = snapshotForDsl(unsavedDsl, "voices");
+    await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: unsavedDsl,
+    });
+    transport.snapshotAfterApply = undefined;
+    transport.snapshot = snapshotForDsl(savedDsl, "voices");
+    transport.liveRevisions.set("patch-a:voices", saved.plan.targetRevision);
+
+    const review = await service.reviewLiveChanges("patch-a", "voices");
+    expect(review.canAdopt).toBe(false);
+    expect(review.proposedWorkingDsl).toBeUndefined();
+    expect(review.conflicts).toEqual([
+      expect.objectContaining({ kind: "managed_class_changed", id: "obj-ui" }),
+    ]);
+    const plansBeforeAdopt = transport.plans.length;
+    await expect(service.adoptLiveChanges({
+      patcherId: "patch-a",
+      scope: "voices",
+      expectedStructureToken: review.structureToken,
+    })).rejects.toThrow();
+    expect(transport.plans).toHaveLength(plansBeforeAdopt);
+
+    transport.snapshotAfterApply = snapshotForDsl(savedDsl, "voices");
+    const recovered = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      currentDsl: savedDsl,
+      desiredDsl: savedDsl,
+      manualChanges: "merge",
+    });
+    expect(recovered.plan.operations).toEqual([]);
+    expect(recovered.plan.targetRevision).toBe(saved.plan.targetRevision);
   });
 
   it("rejects adoption when the patch changed after the agent reviewed it", async () => {
