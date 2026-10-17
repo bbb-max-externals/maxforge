@@ -2733,8 +2733,12 @@ private:
 			agent_mutation_started = true;
 			// Native box/cord creation does not mark the document edited. Mark
 			// it before mutating so close/quit cannot silently drop applied or
-			// partially applied changes.
-			if(!plan.operations.empty()) {
+			// partially applied changes. A zero-operation plan (adoption) still
+			// changes the saved revision_state, so it needs saving as well.
+			if(
+				!plan.operations.empty() ||
+				plan.target_revision != current_revision
+			) {
 				c74::max::jpatcher_set_dirty(root_patcher, 1);
 			}
 
