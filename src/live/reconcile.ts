@@ -184,6 +184,13 @@ export function reconstructManagedGraph(
       .filter((box) => box.managed)
       .map((box) => [runtimeKey(box.targetPath, box.runtimeId), box])
   );
+  // Max renumbers runtime IDs when a box is replaced or a file is reopened,
+  // so class checks also match the baseline by managed scripting name.
+  const baselineByVarName = new Map(
+    (baseline?.boxes ?? [])
+      .filter((box) => box.managed)
+      .map((box) => [runtimeKey(box.targetPath, box.varName), box])
+  );
   const consumed = new Set<string>();
   const conflicts: PatchReconciliationConflict[] = [];
   const managedBoxes = new Map<string, ManagedSnapshotBox>();
@@ -235,10 +242,12 @@ export function reconstructManagedGraph(
       continue;
     }
 
+    const acknowledgedBox = baselineBox ??
+      baselineByVarName.get(runtimeKey(box.targetPath, box.varName));
     if (
       options.rejectClassChanges &&
-      baselineBox &&
-      baselineBox.maxclass !== box.maxclass &&
+      acknowledgedBox &&
+      acknowledgedBox.maxclass !== box.maxclass &&
       (referenceBox.maxclass !== "newobj" || box.text === undefined)
     ) {
       // The reference box would lend its class to a different live object,
@@ -249,7 +258,7 @@ export function reconstructManagedGraph(
         id,
         message:
           `Managed box "${id}" is a ${box.maxclass} in Max but a ` +
-          `${baselineBox.maxclass} in the acknowledged state. Prepare the ` +
+          `${acknowledgedBox.maxclass} in the acknowledged state. Prepare the ` +
           "known DSL as currentDsl with manualChanges set to merge instead.",
       });
       continue;
