@@ -1094,7 +1094,10 @@ export class MaxforgePatchService {
       (box, baseBox, baselineBox) =>
         this.patchAdapter.resolveLiveBox(box, baseBox, baselineBox),
       undefined,
-      { rejectClassChanges: liveRevision !== undefined }
+      {
+        rejectClassChanges: liveRevision !== undefined,
+        isObjectBox: (box) => this.patchAdapter.isObjectBoxSnapshot(box),
+      }
     );
     const representationIssue = adoptionRepresentationIssue(changes);
     let proposedWorkingDsl: string | undefined;
@@ -1171,7 +1174,10 @@ export class MaxforgePatchService {
       (box, baseBox, baselineBox) =>
         this.patchAdapter.resolveLiveBox(box, baseBox, baselineBox),
       undefined,
-      { rejectClassChanges: liveRevision !== undefined }
+      {
+        rejectClassChanges: liveRevision !== undefined,
+        isObjectBox: (box) => this.patchAdapter.isObjectBoxSnapshot(box),
+      }
     );
     if (observed.conflicts.length > 0) {
       throw new PatchReconciliationError(observed.conflicts);

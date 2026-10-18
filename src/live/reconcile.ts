@@ -167,13 +167,22 @@ export function reconcilePatchGraphs(
   };
 }
 
+function defaultIsObjectBox(box: MaxforgeSnapshotBox): boolean {
+  return box.text !== undefined &&
+    box.maxclass !== "message" &&
+    box.maxclass !== "comment";
+}
+
 export function reconstructManagedGraph(
   base: PatchGraph,
   current: MaxforgePatcherSnapshot,
   baseline?: MaxforgePatcherSnapshot,
   resolveBox: LiveSnapshotBoxResolver = defaultLiveBox,
   recovery?: PatchGraph,
-  options: { readonly rejectClassChanges?: boolean } = {}
+  options: {
+    readonly rejectClassChanges?: boolean;
+    readonly isObjectBox?: (box: MaxforgeSnapshotBox) => boolean;
+  } = {}
 ): ReconstructedManagedState {
   const baseBoxes = flattenBaseBoxes(base.patcher);
   const recoveryBoxes = recovery
@@ -248,7 +257,12 @@ export function reconstructManagedGraph(
       options.rejectClassChanges &&
       acknowledgedBox &&
       acknowledgedBox.maxclass !== box.maxclass &&
-      (referenceBox.maxclass !== "newobj" || box.text === undefined)
+      !(
+        // An object box whose text changed reports a different object class;
+        // its text is resolved below. A message or comment is not exempt.
+        referenceBox.maxclass === "newobj" &&
+        (options.isObjectBox ?? defaultIsObjectBox)(box)
+      )
     ) {
       // The reference box would lend its class to a different live object,
       // for example a saved dial reopened after an unsaved slider replacement.

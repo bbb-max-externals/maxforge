@@ -1547,6 +1547,91 @@ describe("MaxforgePatchService", () => {
     expect(recovered.plan.targetRevision).toBe(saved.plan.targetRevision);
   });
 
+  it.each([
+    ["message", 'ui = message "cycle~ 440" at(50, 50)'],
+    ["comment", 'ui = comment "cycle~ 440" at(50, 50)'],
+  ])(
+    "refuses to adopt a reverted %s box after an unsaved object replacement",
+    async (_kind, savedDsl) => {
+      const transport = new FakeTransport();
+      const service = createService(transport);
+      const unsavedDsl = "ui = cycle~ 660 at(50, 50)";
+      transport.snapshotAfterApply = maxObjectClasses(
+        snapshotForDsl(savedDsl, "voices")
+      );
+      const saved = await service.applyDsl({
+        patcherId: "patch-a",
+        scope: "voices",
+        desiredDsl: savedDsl,
+      });
+      transport.snapshotAfterApply = maxObjectClasses(
+        snapshotForDsl(unsavedDsl, "voices")
+      );
+      await service.applyDsl({
+        patcherId: "patch-a",
+        scope: "voices",
+        desiredDsl: unsavedDsl,
+      });
+      transport.snapshotAfterApply = undefined;
+      const reopened = snapshotForDsl(savedDsl, "voices");
+      transport.snapshot = {
+        ...reopened,
+        boxes: reopened.boxes.map((box) => ({ ...box, runtimeId: "obj-2" })),
+      };
+      transport.liveRevisions.set("patch-a:voices", saved.plan.targetRevision);
+
+      const review = await service.reviewLiveChanges("patch-a", "voices");
+      expect(review.canAdopt).toBe(false);
+      expect(review.conflicts).toEqual([
+        expect.objectContaining({ kind: "managed_class_changed", id: "obj-ui" }),
+      ]);
+      const plansBeforeAdopt = transport.plans.length;
+      await expect(service.adoptLiveChanges({
+        patcherId: "patch-a",
+        scope: "voices",
+        expectedStructureToken: review.structureToken,
+      })).rejects.toThrow("acknowledged state");
+      expect(transport.plans).toHaveLength(plansBeforeAdopt);
+    }
+  );
+
+  it("still adopts a reverted object box whose text changed", async () => {
+    const transport = new FakeTransport();
+    const service = createService(transport);
+    const savedDsl = "osc = cycle~ 440 at(50, 50)";
+    const unsavedDsl = "osc = saw~ 440 at(50, 50)";
+    transport.snapshotAfterApply = maxObjectClasses(
+      snapshotForDsl(savedDsl, "voices")
+    );
+    const saved = await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: savedDsl,
+    });
+    transport.snapshotAfterApply = maxObjectClasses(
+      snapshotForDsl(unsavedDsl, "voices")
+    );
+    await service.applyDsl({
+      patcherId: "patch-a",
+      scope: "voices",
+      desiredDsl: unsavedDsl,
+    });
+    transport.snapshotAfterApply = undefined;
+    const reopened = maxObjectClasses(snapshotForDsl(savedDsl, "voices"));
+    transport.snapshot = {
+      ...reopened,
+      boxes: reopened.boxes.map((box) => ({ ...box, runtimeId: "obj-2" })),
+    };
+    transport.liveRevisions.set("patch-a:voices", saved.plan.targetRevision);
+
+    const review = await service.reviewLiveChanges("patch-a", "voices");
+    expect(review).toMatchObject({
+      canAdopt: true,
+      conflicts: [],
+      observedManagedRevision: saved.plan.targetRevision,
+    });
+  });
+
   it("rejects adoption when the patch changed after the agent reviewed it", async () => {
     const transport = new FakeTransport();
     const service = createService(transport);
@@ -2671,6 +2756,20 @@ function patcherSnapshot(): MaxforgePatcherSnapshot {
       attributes: {},
     }],
     connections: [],
+  };
+}
+
+// Max reports an object box under its object class (cycle~), not newobj.
+function maxObjectClasses(
+  snapshot: MaxforgePatcherSnapshot
+): MaxforgePatcherSnapshot {
+  return {
+    ...snapshot,
+    boxes: snapshot.boxes.map((box) =>
+      box.maxclass === "newobj" && box.text
+        ? { ...box, maxclass: box.text.split(" ")[0] }
+        : box
+    ),
   };
 }
 
