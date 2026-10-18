@@ -34,6 +34,12 @@ export type PatchReconciliationConflict =
       readonly message: string;
     }
   | {
+      readonly kind: "managed_class_changed";
+      readonly targetPath: readonly string[];
+      readonly id?: string;
+      readonly message: string;
+    }
+  | {
       readonly kind: "duplicate_managed_identity";
       readonly targetPath: readonly string[];
       readonly id?: string;
@@ -161,12 +167,22 @@ export function reconcilePatchGraphs(
   };
 }
 
+function defaultIsObjectBox(box: MaxforgeSnapshotBox): boolean {
+  return box.text !== undefined &&
+    box.maxclass !== "message" &&
+    box.maxclass !== "comment";
+}
+
 export function reconstructManagedGraph(
   base: PatchGraph,
   current: MaxforgePatcherSnapshot,
   baseline?: MaxforgePatcherSnapshot,
   resolveBox: LiveSnapshotBoxResolver = defaultLiveBox,
-  recovery?: PatchGraph
+  recovery?: PatchGraph,
+  options: {
+    readonly rejectClassChanges?: boolean;
+    readonly isObjectBox?: (box: MaxforgeSnapshotBox) => boolean;
+  } = {}
 ): ReconstructedManagedState {
   const baseBoxes = flattenBaseBoxes(base.patcher);
   const recoveryBoxes = recovery
@@ -176,6 +192,13 @@ export function reconstructManagedGraph(
     (baseline?.boxes ?? [])
       .filter((box) => box.managed)
       .map((box) => [runtimeKey(box.targetPath, box.runtimeId), box])
+  );
+  // Max renumbers runtime IDs when a box is replaced or a file is reopened,
+  // so class checks also match the baseline by managed scripting name.
+  const baselineByVarName = new Map(
+    (baseline?.boxes ?? [])
+      .filter((box) => box.managed)
+      .map((box) => [runtimeKey(box.targetPath, box.varName), box])
   );
   const consumed = new Set<string>();
   const conflicts: PatchReconciliationConflict[] = [];
@@ -224,6 +247,33 @@ export function reconstructManagedGraph(
         targetPath: box.targetPath,
         id,
         message: `More than one live box uses managed identity "${id}"`,
+      });
+      continue;
+    }
+
+    const acknowledgedBox = baselineBox ??
+      baselineByVarName.get(runtimeKey(box.targetPath, box.varName));
+    if (
+      options.rejectClassChanges &&
+      acknowledgedBox &&
+      acknowledgedBox.maxclass !== box.maxclass &&
+      !(
+        // An object box whose text changed reports a different object class;
+        // its text is resolved below. A message or comment is not exempt.
+        referenceBox.maxclass === "newobj" &&
+        (options.isObjectBox ?? defaultIsObjectBox)(box)
+      )
+    ) {
+      // The reference box would lend its class to a different live object,
+      // for example a saved dial reopened after an unsaved slider replacement.
+      conflicts.push({
+        kind: "managed_class_changed",
+        targetPath: box.targetPath,
+        id,
+        message:
+          `Managed box "${id}" is a ${box.maxclass} in Max but a ` +
+          `${acknowledgedBox.maxclass} in the acknowledged state. Prepare the ` +
+          "known DSL as currentDsl with manualChanges set to merge instead.",
       });
       continue;
     }

@@ -13,4 +13,9 @@ export interface PatchGraphAdapter {
     base: PatchBox,
     baseline?: MaxforgeSnapshotBox
   ): PatchBox;
+  /**
+   * Whether a live box is an object box (newobj). Message, comment, and UI
+   * boxes can also carry text, so text alone is not evidence.
+   */
+  isObjectBoxSnapshot(snapshot: MaxforgeSnapshotBox): boolean;
 }

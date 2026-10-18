@@ -10,10 +10,27 @@ import { resolveSnapshotAttributes } from "../max/patch-snapshot.js";
 import type { PatchGraphAdapter } from "./patch-adapter.js";
 
 export class DslPatchAdapter implements PatchGraphAdapter {
+  private nonObjectClasses: ReadonlySet<string> | undefined;
+
   constructor(private database: ObjectDatabase) {}
 
   replaceDatabase(database: ObjectDatabase): void {
     this.database = database;
+    this.nonObjectClasses = undefined;
+  }
+
+  isObjectBoxSnapshot(snapshot: MaxforgeSnapshotBox): boolean {
+    if (snapshot.text === undefined) return false;
+    // Max reports an object box under its object class (cycle~, plus~,
+    // jpatcher), never under a UI, message, or comment box class.
+    this.nonObjectClasses ??= new Set([
+      "message",
+      "comment",
+      ...Object.values(this.database)
+        .map((definition) => definition.maxclass)
+        .filter((maxclass) => maxclass !== "newobj"),
+    ]);
+    return !this.nonObjectClasses.has(snapshot.maxclass);
   }
 
   compile(
