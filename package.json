@@ -52,6 +52,7 @@
     "README.md",
     "skills/",
     "docs/dsl-spec.md",
+    "docs/ui-templates.md",
     "docs/cli.md",
     "docs/agent-guide.md",
     "docs/architecture.md",

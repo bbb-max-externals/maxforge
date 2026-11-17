@@ -14,6 +14,7 @@ import {
 const database = dbData as unknown as ObjectDatabase;
 
 const generatedPairs = [
+  ["examples/audio-tester/audio-tester.maxdsl", "examples/audio-tester/audio-tester.maxpat"],
   ["examples/basic_synth.maxdsl", "examples/basic_synth.maxpat"],
   ["examples/max_node_script/generated_patch.maxdsl", "examples/max_node_script/generated_patch.maxpat"],
   ["examples/max_node_script/maxforge_node_script_demo.maxdsl", "examples/max_node_script/maxforge_node_script_demo.maxpat"],

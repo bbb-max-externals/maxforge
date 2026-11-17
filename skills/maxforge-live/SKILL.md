@@ -35,6 +35,13 @@ the private helper manually.
 
 ## Editing
 
+Retain an external copy of authored template/style DSL before adoption or merge:
+managed serialization can flatten it into explicit objects and attributes.
+Root `patcher` settings are file-only; omit that directive for managed sources,
+including when decompile added it from an existing window's settings. Template
+syntax support belongs to the installed service compiler, not the HTTP client;
+do not assume a newer client upgrades the service's grammar.
+
 Discover schemas from `/v1/tools`. Require `maxforge_prepare_change`,
 `maxforge_apply_prepared_change`, and `maxforge_get_working_source`. Call
 `maxforge_help` with topic `workflow` when the contract is unfamiliar or tools

@@ -7,6 +7,9 @@ export interface PatcherJSON {
     classnamespace: string;
     rect: [number, number, number, number];
     bglocked: number;
+    bgcolor?: number[];
+    editing_bgcolor?: number[];
+    locked_bgcolor?: number[];
     openrect: [number, number, number, number];
     openinpresentation: number;
     default_fontsize: number;
@@ -129,6 +132,7 @@ export type ObjectDatabase = Record<string, ObjectDef>;
 export interface ASTNode {
   type: "program";
   patchDecl?: PatchDecl;
+  patcherAttrs?: Record<string, AttrValue[]>;
   statements: Statement[];
 }
 

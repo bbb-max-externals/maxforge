@@ -11,7 +11,7 @@ import {
 } from "../core/types.js";
 import { collectBlock, SourceLine, toSourceLines } from "./blocks.js";
 import { expandControlFlow } from "./expander.js";
-import { parseAttributes, parsePositionSuffix } from "./object-syntax.js";
+import { isOrdinaryStatement, parseAttributes, parsePositionSuffix } from "./object-syntax.js";
 
 export function parse(source: string): { ast: ASTNode; errors: CompileError[] } {
   const expanded = expandControlFlow(source);
@@ -22,9 +22,14 @@ export function parse(source: string): { ast: ASTNode; errors: CompileError[] } 
     };
   }
 
+  return parseExpanded(expanded.source);
+}
+
+function parseExpanded(source: string): { ast: ASTNode; errors: CompileError[] } {
   const errors: CompileError[] = [];
-  const lines = toSourceLines(expanded.source);
+  const lines = toSourceLines(source);
   let patchDecl: PatchDecl | undefined;
+  let patcherAttrs: ASTNode["patcherAttrs"];
   const statements: Statement[] = [];
   let i = 0;
 
@@ -37,8 +42,18 @@ export function parse(source: string): { ast: ASTNode; errors: CompileError[] } 
       continue;
     }
 
+    if (!isOrdinaryStatement(line) && /^patcher(?:\s|$)/.test(line)) {
+      const parsed = parseAttributes(line.slice(7).trim());
+      appendSyntaxErrors(errors, parsed.errors, current.line);
+      if (patcherAttrs) appendSyntaxErrors(errors, ["Duplicate patcher directive"], current.line);
+      if (parsed.text || !Object.keys(parsed.attrs).length) appendSyntaxErrors(errors, ["patcher requires @attributes only"], current.line);
+      patcherAttrs = parsed.attrs;
+      i++;
+      continue;
+    }
+
     // patch declaration
-    if (line.startsWith("patch ")) {
+    if (!isOrdinaryStatement(line) && line.startsWith("patch ")) {
       const parsed = parsePatchDecl(line);
       if (parsed) {
         if (patchDecl) {
@@ -153,7 +168,7 @@ export function parse(source: string): { ast: ASTNode; errors: CompileError[] } 
     i++;
   }
 
-  return { ast: { type: "program", patchDecl, statements }, errors };
+  return { ast: { type: "program", patchDecl, patcherAttrs, statements }, errors };
 }
 
 function appendSyntaxErrors(
@@ -271,7 +286,7 @@ function parseSubpatcherBody(
     });
   }
 
-  const { ast, errors: childErrors } = parse(block.lines.map((line) => line.text).join("\n"));
+  const { ast, errors: childErrors } = parseExpanded(block.lines.map((line) => line.text).join("\n"));
   for (const error of childErrors) {
     errors.push({
       ...error,

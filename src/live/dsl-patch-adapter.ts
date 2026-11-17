@@ -90,5 +90,5 @@ export class DslPatchAdapter implements PatchGraphAdapter {
 }
 
 function hasStructuralText(maxclass: string): boolean {
-  return maxclass === "newobj" || maxclass === "message" || maxclass === "comment";
+  return maxclass === "newobj" || maxclass === "message" || maxclass === "comment" || maxclass === "textbutton";
 }

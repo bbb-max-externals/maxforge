@@ -1,11 +1,49 @@
 import { AttrValue } from "../core/types.js";
 
+export interface SourceToken { text: string; start: number; end: number }
+
+/** Whitespace-delimited tokens with intact quotes and source offsets. */
+export function sourceTokens(text: string): SourceToken[] {
+  const tokens: SourceToken[] = [];
+  let i = 0;
+  while (i < text.length) {
+    if (/\s/.test(text[i])) { i++; continue; }
+    const start = i;
+    let quoted = false;
+    while (i < text.length) {
+      if (text[i] === "\\" && i + 1 < text.length) { i += 2; continue; }
+      if (text[i] === '"') quoted = !quoted;
+      if (!quoted && /\s/.test(text[i])) break;
+      i++;
+    }
+    tokens.push({ text: text.slice(start, i), start, end: i });
+  }
+  return tokens;
+}
+
+export function opensBlock(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("#") || !trimmed.endsWith("{")) return false;
+  let quoted = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] === "\\") { i++; continue; }
+    if (trimmed[i] === '"') quoted = !quoted;
+    if (i === trimmed.length - 1) return !quoted;
+  }
+  return false;
+}
+
+export function isOrdinaryStatement(text: string): boolean {
+  return /^\w+\s*=/.test(text.trimStart()) || /^\w+(?:\[[\d:.]+\])?\s*->/.test(text.trimStart());
+}
+
 export function parsePositionSuffix(text: string): {
   text: string;
   pos?: [number, number];
   size?: [number, number];
   errors: string[];
 } {
+  if (!sourceTokens(text).some((token) => token.text.startsWith("at("))) return { text, errors: [] };
   const number = "-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][+-]?\\d+)?";
   const candidate = text.match(/\s+at\(([^()]*)\)\s*$/);
   if (!candidate) {
@@ -61,7 +99,7 @@ export function parseAttributes(text: string): {
   attrs: Record<string, AttrValue[]>;
   errors: string[];
 } {
-  const attrs: Record<string, AttrValue[]> = {};
+  const attrs: Record<string, AttrValue[]> = Object.create(null);
   const errors: string[] = [];
   const tokenized = tokenizeWithQuotes(text);
   const tokens = tokenized.tokens;
@@ -97,7 +135,8 @@ export function parseAttributes(text: string): {
     const values: AttrValue[] = [];
     for (let j = startIdx + 1; j < endIdx; j++) {
       const token = unescapeLiteralAttributeToken(tokens[j]);
-      if (/^-?\d+(\.\d+)?$/.test(token)) {
+      if (/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(token)) {
+        if (!Number.isFinite(Number(token))) errors.push(`Attribute @${key} requires finite numbers`);
         values.push(parseFloat(token));
       } else {
         values.push(stripQuotes(token));
@@ -125,11 +164,9 @@ function unescapeLiteralAttributeTokens(text: string): string {
     if (
       !inQuotes &&
       character === "\\" &&
-      text[i + 1] === "@" &&
+      (text[i + 1] === "@" || text.slice(i + 1).startsWith("using(")) &&
       (i === 0 || /\s/.test(text[i - 1]))
     ) {
-      result += "@";
-      i++;
       continue;
     }
     result += character;
@@ -139,7 +176,7 @@ function unescapeLiteralAttributeTokens(text: string): string {
 }
 
 function unescapeLiteralAttributeToken(token: string): string {
-  return token.startsWith("\\@") ? token.substring(1) : token;
+  return token.startsWith("\\@") || token.startsWith("\\using(") ? token.substring(1) : token;
 }
 
 function isEscaped(text: string, index: number): boolean {

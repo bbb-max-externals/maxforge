@@ -1,6 +1,8 @@
 import { CompileError, ErrorCode } from "../core/types.js";
 import { collectBlock, SourceLine, toSourceLines } from "./blocks.js";
 import { evaluateExpression } from "./expression.js";
+import { applyStyles, defineStyle, instantiate, parseUse, Style } from "./ui-templates.js";
+import { isOrdinaryStatement, opensBlock } from "./object-syntax.js";
 
 interface ExpandResult {
   source: string;
@@ -18,6 +20,10 @@ interface ExpansionState {
   readonly maxLoopIterations: number;
   expandedLines: number;
   exhausted: boolean;
+  work: number;
+  readonly styles: Map<string, Style>;
+  readonly templates: Map<string, { params: string[]; body: SourceLine[]; env: Map<string, number>; styles: Map<string, Style> }>;
+  readonly calls: string[];
 }
 
 export const DEFAULT_MAX_EXPANDED_LINES = 100_000;
@@ -48,6 +54,10 @@ export function expandControlFlow(
     ),
     expandedLines: 0,
     exhausted: false,
+    work: 0,
+    styles: new Map(),
+    templates: new Map(),
+    calls: [],
   };
   const result = expandBlock(lines, 0, new Map(), state);
 
@@ -73,7 +83,10 @@ function expandBlock(
   sourceLines: SourceLine[],
   startIndex: number,
   env: Map<string, number>,
-  state: ExpansionState
+  state: ExpansionState,
+  root = true,
+  aliases: Set<string> = new Set(),
+  styles: Map<string, Style> = state.styles
 ): BlockResult {
   const output: string[] = [];
   let i = startIndex;
@@ -82,11 +95,79 @@ function expandBlock(
     const current = sourceLines[i];
     const trimmed = current.text.trim();
 
+    if (++state.work > state.maxExpandedLines + state.maxLoopIterations) {
+      state.errors.push({ code: ErrorCode.SYNTAX_ERROR, message: "Expansion work budget exceeded", line: current.line });
+      state.exhausted = true;
+      break;
+    }
+    if (!trimmed || trimmed.startsWith("#")) {
+      appendLines(output, [current.text], current.line, state);
+      i++;
+      continue;
+    }
+
+    try {
+      if (!isOrdinaryStatement(trimmed)) {
+        const constant = trimmed.match(/^const\s+([A-Za-z_]\w*)\s*=\s*(.+)$/);
+        if (constant) {
+          if (env.has(constant[1])) throw new Error(`Duplicate constant: ${constant[1]}`);
+          env.set(constant[1], evaluateExpression(constant[2], env));
+          i++;
+          continue;
+        }
+        const template = trimmed.match(/^template\s+([A-Za-z_]\w*)\s*\(([^()]*)\)\s*\{$/);
+        if (template) {
+          const body = collectBlock(sourceLines, i + 1);
+          i = body.nextIndex;
+          if (!root) throw new Error("Template definitions are root-only");
+          if (!body.closed) throw new Error(`Unclosed template: ${template[1]}`);
+          if (state.templates.has(template[1])) throw new Error(`Duplicate template: ${template[1]}`);
+          const params = template[2].trim() ? template[2].split(",").map((value) => value.trim()) : [];
+          if (params.some((value) => !/^[A-Za-z_]\w*$/.test(value)) || new Set(params).size !== params.length) {
+            throw new Error("Template parameters must be unique identifiers");
+          }
+          state.templates.set(template[1], { params, body: body.lines, env: new Map(env), styles: new Map(styles) });
+          continue;
+        }
+        if (/^style\s/.test(trimmed)) {
+          if (!root) throw new Error("Style definitions are root-only");
+          defineStyle(interpolateLine(trimmed, env, current.line, state.errors), styles);
+          i++;
+          continue;
+        }
+        if (/^use\s/.test(trimmed)) {
+          const use = parseUse(interpolateLine(trimmed, env, current.line, state.errors), env);
+          const template = state.templates.get(use.name);
+          if (!template) throw new Error(`Unknown template: ${use.name}`);
+          if (use.args.length !== template.params.length) throw new Error(`Template ${use.name} expects ${template.params.length} arguments, received ${use.args.length}`);
+          if (aliases.has(use.alias)) throw new Error(`Duplicate template instance: ${use.alias}`);
+          aliases.add(use.alias);
+          if (state.calls.includes(use.name)) throw new Error(`Recursive template: ${[...state.calls, use.name].join(" -> ")}`);
+          if (state.calls.length >= 32) throw new Error("Template nesting exceeds 32 calls");
+          const innerEnv = new Map(template.env);
+          template.params.forEach((param, index) => innerEnv.set(param, use.args[index]));
+          state.calls.push(use.name);
+          try {
+            const expanded = expandBlock(template.body, 0, innerEnv, state, false, new Set(), template.styles);
+            output.push(...instantiate(expanded.lines, use));
+          } finally {
+            state.calls.pop();
+          }
+          i++;
+          continue;
+        }
+        if (!root && /^patcher(?:\s|$)/.test(trimmed)) throw new Error("patcher settings are root-only");
+      }
+    } catch (error) {
+      state.errors.push({ code: ErrorCode.SYNTAX_ERROR, message: error instanceof Error ? error.message : String(error), line: current.line });
+      return { lines: output, nextIndex: sourceLines.length, closed: false };
+    }
+
     if (trimmed === "}") {
       return { lines: output, nextIndex: i + 1, closed: true, closeLine: current.line };
     }
 
-    const forMatch = trimmed.match(FOR_RE);
+    const forMatch = !isOrdinaryStatement(trimmed) && trimmed.match(FOR_RE);
     if (forMatch) {
       const body = collectBlock(sourceLines, i + 1);
       if (!body.closed) {
@@ -110,9 +191,14 @@ function expandBlock(
       if (range) {
         for (const value of range) {
           if (state.exhausted) break;
+          if (++state.work > state.maxExpandedLines + state.maxLoopIterations) {
+            state.errors.push({ code: ErrorCode.SYNTAX_ERROR, message: "Expansion work budget exceeded", line: current.line });
+            state.exhausted = true;
+            break;
+          }
           const innerEnv = new Map(env);
           innerEnv.set(varName, value);
-          const expanded = expandBlock(body.lines, 0, innerEnv, state);
+          const expanded = expandBlock(body.lines, 0, innerEnv, state, false, aliases, styles);
           output.push(...expanded.lines);
         }
       }
@@ -121,7 +207,7 @@ function expandBlock(
       continue;
     }
 
-    const ifMatch = trimmed.match(IF_RE);
+    const ifMatch = !isOrdinaryStatement(trimmed) && trimmed.match(IF_RE);
     if (ifMatch) {
       const body = collectBlock(sourceLines, i + 1);
       if (!body.closed) {
@@ -151,10 +237,10 @@ function expandBlock(
       }
 
       if (condition !== null && condition !== 0) {
-        const expanded = expandBlock(body.lines, 0, env, state);
+        const expanded = expandBlock(body.lines, 0, new Map(env), state, false, aliases, styles);
         output.push(...expanded.lines);
       } else if (condition !== null && elseBody) {
-        const expanded = expandBlock(elseBody.lines, 0, env, state);
+        const expanded = expandBlock(elseBody.lines, 0, new Map(env), state, false, aliases, styles);
         output.push(...expanded.lines);
       }
 
@@ -162,7 +248,7 @@ function expandBlock(
       continue;
     }
 
-    if (ELSE_RE.test(trimmed)) {
+    if (!isOrdinaryStatement(trimmed) && ELSE_RE.test(trimmed)) {
       state.errors.push({
         code: ErrorCode.SYNTAX_ERROR,
         message: "else must immediately follow an if block",
@@ -171,11 +257,11 @@ function expandBlock(
       return { lines: output, nextIndex: sourceLines.length, closed: false };
     }
 
-    if (trimmed.endsWith("{")) {
-      const header = interpolateLine(current.text, env, current.line, state.errors);
+    if (opensBlock(trimmed)) {
+      const header = styledLine(current, env, state, styles);
       appendLines(output, [header], current.line, state);
 
-      const body = expandBlock(sourceLines, i + 1, env, state);
+      const body = expandBlock(sourceLines, i + 1, new Map(env), state, false, new Set(), styles);
       output.push(...body.lines);
       if (!body.closed) {
         state.errors.push({
@@ -192,7 +278,7 @@ function expandBlock(
 
     appendLines(
       output,
-      [interpolateLine(current.text, env, current.line, state.errors)],
+      [styledLine(current, env, state, styles)],
       current.line,
       state
     );
@@ -200,6 +286,16 @@ function expandBlock(
   }
 
   return { lines: output, nextIndex: i, closed: false };
+}
+
+function styledLine(current: SourceLine, env: Map<string, number>, state: ExpansionState, styles: Map<string, Style>): string {
+  const text = interpolateLine(current.text, env, current.line, state.errors);
+  try {
+    return applyStyles(text, styles);
+  } catch (error) {
+    state.errors.push({ code: ErrorCode.SYNTAX_ERROR, message: error instanceof Error ? error.message : String(error), line: current.line });
+    return text;
+  }
 }
 
 function evalRange(
@@ -262,6 +358,7 @@ function appendRangeValue(
       message: `for loop exceeds ${state.maxLoopIterations} iterations`,
       line,
     });
+    state.exhausted = true;
     return false;
   }
   if (value + step === value) {

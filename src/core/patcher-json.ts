@@ -11,7 +11,8 @@ import { CompiledBox, CompiledLine } from "./compiled-model.js";
 export function buildPatcherJSON(
   patchDecl: ASTNode["patchDecl"],
   boxes: CompiledBox[],
-  lines: CompiledLine[]
+  lines: CompiledLine[],
+  patcherAttrs?: ASTNode["patcherAttrs"]
 ): PatcherJSON {
   const boxWrappers: BoxWrapper[] = boxes.map((b) => {
     const box: BoxJSON = {
@@ -96,6 +97,7 @@ export function buildPatcherJSON(
       style: "",
       subpatcher_template: "",
       assistshowspatchername: 0,
+      ...Object.fromEntries(Object.entries(patcherAttrs ?? {}).map(([key, values]) => [key, values.length === 1 ? values[0] : values])),
       boxes: boxWrappers,
       lines: lineWrappers,
     },

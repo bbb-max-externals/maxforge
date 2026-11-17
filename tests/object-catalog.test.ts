@@ -19,11 +19,11 @@ function shape(text: string): Pick<ObjectDef, "numinlets" | "numoutlets" | "outl
 }
 
 describe("object catalog integrity", () => {
-  it("contains 319 reviewed entries without duplicate top-level keys", () => {
+  it("contains 320 reviewed entries without duplicate top-level keys", () => {
     const raw = fs.readFileSync(catalogPath, "utf8");
     const serializedTopLevelKeys = [...raw.matchAll(/^  "(?:[^"\\]|\\.)+": \{/gm)];
-    expect(serializedTopLevelKeys).toHaveLength(319);
-    expect(Object.keys(catalog)).toHaveLength(319);
+    expect(serializedTopLevelKeys).toHaveLength(320);
+    expect(Object.keys(catalog)).toHaveLength(320);
   });
 
   it("rejects known fabricated, mapping-only, and unsupported names", () => {

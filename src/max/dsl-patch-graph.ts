@@ -45,6 +45,10 @@ export function compileDslToPatchGraph(
     return { success: false, errors: parseErrors, warnings: [] };
   }
 
+  if (ast.patcherAttrs) {
+    return { success: false, errors: [{ code: ErrorCode.RESERVED_ATTRIBUTE, message: "Plan/live compilation does not support root patcher settings; generate a .maxpat file or omit the patcher directive" }], warnings: [] };
+  }
+
   const varNameError = findReservedVarName(ast);
   if (varNameError) {
     return { success: false, errors: [varNameError], warnings: [] };
@@ -75,6 +79,7 @@ export function patchGraphToDsl(graph: PatchGraph): string {
     {
       boxName: (box) => managedDslName(box.id),
       includeBoxSize: true,
+      omitPatcherAttributes: true,
     }
   );
 }

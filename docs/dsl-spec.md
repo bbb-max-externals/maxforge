@@ -201,6 +201,18 @@ values have no lossless DSL representation; they are omitted with a preceding
 silently stringified into a different value.
 
 Reserved structural keys cannot be set with attributes: `id`, `maxclass`, `numinlets`, `numoutlets`, `outlettype`, `patching_rect`, `text`, `patcher`, and `comment`.
+The narrow exception is `textbutton @text "Off" @texton "On"`: its off label
+is one string, retained through file and managed graph round trips. Label edits
+produce an attribute set operation, preserving object identity and connections
+in the plan. Native host application of this label update is not yet verified.
+
+For numeric constants, reusable UI templates, named attribute styles, independent
+patching/Presentation origins and root window settings, see
+[UI templates and styles](ui-templates.md) and the
+[audio tester](../examples/audio-tester/README.md). These expand into ordinary
+objects before compilation. Decompile returns expanded source; preserve authored
+templates separately. Root `patcher` settings are file-only and rejected by
+plan/live compilation.
 
 ### 3.9 Control-flow and arithmetic expansion
 
@@ -451,7 +463,7 @@ When the compiler encounters `name = type_text`, it:
 3. Resolves `maxclass`, port metadata, and layout size from one of three
    catalog classes: fixed, argument-dependent, or dynamic.
 
-The bundled catalog contains 319 entries: 318 Max object names or aliases with
+The bundled catalog contains 320 entries: 319 Max object names or aliases with
 identity evidence in the locally audited Max 9 resources, plus the project-owned
 `maxforge` external. This is not a complete Max API. Catalog membership is
 also not a claim that an optional package is installed on every Max system.

@@ -137,6 +137,7 @@ For local development, use this checkout's absolute path instead of
 | Topic | Document |
 |---|---|
 | DSL grammar, expansion, errors, and output | [docs/dsl-spec.md](docs/dsl-spec.md) |
+| UI templates, styles, and window settings | [docs/ui-templates.md](docs/ui-templates.md) |
 | CLI commands and options | [docs/cli.md](docs/cli.md) |
 | External and abstraction metadata | [docs/object-catalog.md](docs/object-catalog.md) |
 | HTTP setup, actions, persistence, security, and recovery | [docs/live.md](docs/live.md) |

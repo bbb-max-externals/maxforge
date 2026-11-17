@@ -46,6 +46,7 @@ describe("snapshot", () => {
 // ---------------------------------------------------------------------------
 describe("examples", () => {
   const examples = [
+    "audio-tester/audio-tester.maxdsl",
     "basic_synth.maxdsl",
     "max_node_script/generated_patch.maxdsl",
     "max_node_script/maxforge_node_script_demo.maxdsl",
