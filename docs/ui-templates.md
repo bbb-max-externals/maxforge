@@ -80,8 +80,11 @@ or use the library decompiler's `omitPatcherAttributes: true` option.
 cannot overwrite newobj/message/comment structural text. `textbutton` is in the
 built-in catalog and needs no external declaration.
 Label-change plans emit `set text` without replacing the box or its connections.
-Planning and round trips are tested; applying that label update in a Max host
-has not yet been verified. Do not treat the plan test as native execution evidence.
+Planning and round trips are tested. A Max 9 host check of the development build
+at `32c29ea` also verified changing both labels through two `set` operations:
+no create/delete or replacement, unchanged runtime identity, matching applied
+revision and snapshot labels, and no drift. This checks native state, not the
+rendered labels or on-state colors; screenshots were not verified.
 
 ## Identity and round trips
 

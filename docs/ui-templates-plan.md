@@ -152,7 +152,8 @@ Mandatory review amendments:
 
 - Initial plan submitted to Claude via agmsg; response 2026-11-17T13:55:49Z.
 - Agreement: core direction AGREE; conditional start permitted after adding
-  B1/B2 as invariants. Both incorporated above. B3 remains a completion gate.
+  B1/B2 as invariants. Both incorporated above. B3 was subsequently verified
+  on 2026-11-18 as recorded below.
 - Implementation review: Claude APPROVE (over 80% agreement), 2026-11-17
   14:16 UTC. Independently ran all 488 then-current tests and both type checks;
   checked keyword compatibility, quoting, capture, aliases, nested origins,
@@ -161,12 +162,12 @@ Mandatory review amendments:
   adjacent opening-brace compatibility and repeated over-limit range work.
   Architecture lane: WATCH for duplicated lexical handling; no remaining
   design blocker. Keep these regression cases before adding syntax.
-- B3 limitation accepted by Claude as non-blocking with explicit documentation:
-  native label mutation is unverified. The installed package symlink points to
-  an old checkout without the external; the existing repository build contains
-  native v0.6.3 metadata with a v0.6.2 service and refuses startup. No installed
-  package or bundled binary/service was changed. Repair requires a separately
-  authorized complete-package update with Max closed.
+- At the 2026-11-17 review, Claude accepted B3 as non-blocking with an explicit
+  unverified-host limitation. The installed package symlink pointed to an old
+  checkout without the external; the repository build contained native v0.6.3
+  metadata with a v0.6.2 service and refused startup. This implementation session
+  did not change the installed package. The separately authorized repair and
+  follow-up host verification are recorded below.
 - Added 8/16-channel example checks for startup defaults, DAC routes, Solo
   trigger ordering and emitted gate truth table (none/one/multiple Solo,
   Mute priority, eight unused zero inputs). Physical audio is not tested.
@@ -189,5 +190,27 @@ Mandatory review amendments:
   audio tester with the installed CLI.
 - Catalog audit: 320 entries / 179778 observations, zero errors or warnings.
 - Markdown links and whitespace checks: passed.
-- Native label apply, Solo/Mute host interaction and physical audio remain
-  unverified. No release, installation replacement or publication performed.
+- At this stage, native label apply, Solo/Mute host interaction and physical
+  audio were unverified. No release, installation replacement or publication
+  was performed in this implementation session.
+
+## B3 host follow-up (2026-11-18)
+
+Evidence reported by `maxforge-m4mini-claude` through agmsg at
+2026-11-17T16:43:58Z (2026-11-18 JST), independently of the authoring session:
+
+- With user authorization and Max closed, Claude rebuilt the native external
+  at `32c29ea`, bundled the service using `stage-service`, passed
+  `verify-max-package`, and changed the Max package link from the old
+  `maxpat-dsl` checkout to this repository. This was a development install,
+  not a published release.
+- Max 9 registered service version 0.6.3 with `versionCompatible: true`.
+- In a disposable patch, a textbutton started with `text=Solo`, `texton=SOLO`.
+  Preparing `text=Mute`, `texton=MUTED` produced two `set` operations, zero
+  creates/deletes and no replacements.
+- After apply, the acknowledged revision matched the target,
+  `statePersisted` was true, runtime ID remained `obj-1`, snapshot labels were
+  `Mute` / `MUTED`, and no drift was reported.
+- B3 native label application is verified within that host/build scope.
+  Screenshots of the updated labels, Solo/Mute interaction in the audio tester,
+  on-state colors and physical audio remain outside this evidence.

@@ -204,7 +204,9 @@ Reserved structural keys cannot be set with attributes: `id`, `maxclass`, `numin
 The narrow exception is `textbutton @text "Off" @texton "On"`: its off label
 is one string, retained through file and managed graph round trips. Label edits
 produce an attribute set operation, preserving object identity and connections
-in the plan. Native host application of this label update is not yet verified.
+in the plan. A Max 9 host check also verified updating both labels while retaining
+runtime identity, with matching applied revision and snapshot values. Rendered
+label appearance was not checked; see [verification details](ui-templates.md).
 
 For numeric constants, reusable UI templates, named attribute styles, independent
 patching/Presentation origins and root window settings, see
