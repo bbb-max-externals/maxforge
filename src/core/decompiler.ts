@@ -22,7 +22,7 @@ export function decompile(
     const sizeStr = `${Math.round(p.rect[2])}x${Math.round(p.rect[3])}`;
     lines.push(
       `patch ${JSON.stringify(p.title ?? "Untitled")} | ` +
-      `${JSON.stringify(p.description)} | ${sizeStr}`
+      `${JSON.stringify(p.description ?? "")} | ${sizeStr}`
     );
     lines.push("");
   }

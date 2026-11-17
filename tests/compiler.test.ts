@@ -217,6 +217,15 @@ signal_path = p inner {
     expect(dsl).toContain("source_in -> processed_out");
   });
 
+  it("decompiles Max window metadata when the file omits its description", () => {
+    const patch = compile(parse("n = number").ast, db).output!;
+    Reflect.deleteProperty(patch.patcher, "description");
+    patch.patcher.rect = [0, 0, 800, 600];
+    const parsed = parse(decompile(patch));
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.ast.patchDecl?.size).toEqual([800, 600]);
+  });
+
   it("does not mistake a default numeric Max box ID for a DSL name", () => {
     const patch = compile(parse("n = number").ast, db).output!;
     patch.patcher.boxes[0].box.id = "obj-1";

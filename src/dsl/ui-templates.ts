@@ -43,6 +43,9 @@ export function applyStyles(line: string, styles: Map<string, Style>): string {
   const tokens = sourceTokens(positioned.text);
   const start = tokens.findIndex((token) => token.text.startsWith("using("));
   if (start < 0) return line;
+  if (tokens.slice(start + 1).some((token) => token.text.startsWith("using("))) {
+    throw new Error("Invalid or duplicate using(...) suffix");
+  }
   if (positioned.errors.length) throw new Error(positioned.errors.join("; "));
   const firstAttribute = tokens.findIndex((token) => token.text.startsWith("@"));
   const end = firstAttribute < 0 ? tokens.length : firstAttribute;

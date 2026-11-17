@@ -3,7 +3,7 @@ import type {
   MaxforgeSnapshotBox,
   MaxforgeSnapshotConnection,
 } from "./patch-protocol.js";
-import type { PatchBox } from "./patch-graph.js";
+import { DEFAULT_TEXTBUTTON_LABEL, type PatchBox } from "./patch-graph.js";
 
 export type PatchSnapshotChange =
   | {
@@ -48,6 +48,14 @@ export type PatchSnapshotChange =
       readonly managed: boolean;
       readonly connection: MaxforgeSnapshotConnection;
     };
+
+export function resolveSnapshotText(maxclass: string, text: string | undefined, baseText: string | undefined): string | undefined {
+  if (maxclass === "textbutton") {
+    // Max reports its default off-label even when the DSL omits @text.
+    return baseText === undefined && text === DEFAULT_TEXTBUTTON_LABEL ? undefined : text;
+  }
+  return maxclass === "newobj" || maxclass === "message" || maxclass === "comment" ? text : undefined;
+}
 
 export function resolveSnapshotAttributes(
   snapshot: MaxforgeSnapshotBox,

@@ -28,6 +28,21 @@ function errors(source: string) {
 }
 
 describe("UI template contracts", () => {
+  it("compiles Windows line endings with the same styles and template instances", () => {
+    const source = "style ui = @fontsize 18\ntemplate strip() {\n n = number using(ui)\n}\nuse strip() as left\n";
+    expect(output(source.replaceAll("\n", "\r\n"))).toEqual(output(source));
+  });
+
+  it("keeps object argument spacing when applying a style", () => {
+    const source = "style ui = @fontsize 18\nr = route first   second using(ui)";
+    expect(output(source).patcher.boxes[0].box.text).toBe("route first   second");
+  });
+
+  it("rejects a second style clause after attributes while preserving quoted literals", () => {
+    const source = "style ui = @fontsize 18\nn = number using(ui) @hint ";
+    expect(errors(source + "help using(ui)")).toMatch(/using\(/);
+    expect(output(source + '"using(ui)"').patcher.boxes[0].box.hint).toBe("using(ui)");
+  });
   it.each([8, 16])("keeps audio tester routing and safe startup for %i channels", (count) => {
     const source = readFileSync(new URL("../examples/audio-tester/audio-tester.maxdsl", import.meta.url), "utf8")
       .replace("const channels = 16", `const channels = ${count}`);
@@ -246,5 +261,19 @@ solo = textbutton @mode 1 @text "Solo off" @texton "Solo on" at(1, 2, 61, 25)`;
     const resolved = adapter.resolveLiveBox({ varName: base.varName, maxclass: "textbutton", text: "Changed", patchingRect: base.patchingRect, attributes: {}, targetPath: [], runtimeId: "test-button", managed: true }, base);
     expect(resolved.text).toBe("Changed");
     expect(graph(adapter.serialize(after)).revision).toBe(after.revision);
+  });
+
+  it("verifies implicit and explicit native textbutton labels without losing manual edits", () => {
+    const adapter = new DslPatchAdapter(db);
+    const implicit = graph("b = textbutton").patcher.boxes[0];
+    const explicit = graph('b = textbutton @text "Button"').patcher.boxes[0];
+    const snapshot = { varName: implicit.varName, maxclass: "textbutton", text: "Button",
+      patchingRect: implicit.patchingRect, attributes: {}, targetPath: [], runtimeId: "b", managed: true };
+    expect(adapter.resolveLiveBox(snapshot, implicit).text).toBeUndefined();
+    expect(adapter.resolveLiveBox(snapshot, explicit).text).toBe("Button");
+    expect(adapter.resolveLiveBox({ ...snapshot, text: "" }, implicit, snapshot).text).toBe("");
+    const reset = diffPatchGraphs(graph('b = textbutton @text "Ready"'), graph("b = textbutton"));
+    expect(reset.operations).toEqual([expect.objectContaining({ op: "set", attribute: "text", value: "Button" })]);
+    expect(reset.rollbackOperations).toEqual([expect.objectContaining({ op: "set", attribute: "text", value: "Ready" })]);
   });
 });

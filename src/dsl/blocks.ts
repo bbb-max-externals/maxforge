@@ -13,7 +13,7 @@ export interface CollectedBlock {
 }
 
 export function toSourceLines(source: string): SourceLine[] {
-  return source.split("\n").map((text, index) => ({ text, line: index + 1 }));
+  return source.split(/\r?\n/).map((text, index) => ({ text, line: index + 1 }));
 }
 
 export function collectBlock(sourceLines: SourceLine[], startIndex: number): CollectedBlock {

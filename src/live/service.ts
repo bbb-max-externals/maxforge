@@ -364,6 +364,7 @@ export class MaxforgePatchService {
   private readonly pendingApplies: Map<string, PendingPatchApply>;
   private readonly latestInspections = new Map<string, MaxforgeSnapshotEvent>();
   private readonly preparedChanges = new Map<string, PreparedChange>();
+  private readonly activeMutations = new Set<string>();
 
   constructor(
     private readonly patchAdapter: PatchGraphAdapter,
@@ -381,6 +382,7 @@ export class MaxforgePatchService {
   }
 
   compilePlan(request: CompilePlanRequest): CompilePlanResult {
+    this.assertTargetIdle(request.patcherId, request.scope);
     const desired = this.patchAdapter.compile(request.desiredDsl, request.scope);
     const current = this.resolveCurrentGraph(request);
     this.assertLiveRevision(request.patcherId, request.scope, current.graph);
@@ -393,6 +395,7 @@ export class MaxforgePatchService {
   }
 
   async prepareChange(request: PrepareChangeRequest): Promise<PrepareChangeOutcome> {
+    this.assertTargetIdle(request.patcherId, request.scope);
     this.assertMutationCompatible(request.patcherId, request.scope);
     const startedAt = performance.now();
     let resolved: ResolvedChange;
@@ -496,6 +499,7 @@ export class MaxforgePatchService {
       );
     }
     this.assertMutationCompatible(prepared.patcherId, prepared.plan.scope);
+    this.assertTargetIdle(prepared.patcherId, prepared.plan.scope);
     try {
       this.assertPreparedBase(prepared);
     } catch (error) {
@@ -503,11 +507,8 @@ export class MaxforgePatchService {
       throw error;
     }
     this.preparedChanges.delete(request.receiptId);
-    const applied = await this.executeResolvedChange(
-      prepared.patcherId,
-      prepared,
-      performance.now()
-    );
+    const applied = await this.withTargetMutation(prepared.patcherId, prepared.plan.scope, () =>
+      this.executeResolvedChange(prepared.patcherId, prepared, performance.now()));
     return {
       receiptId: prepared.receiptId,
       patcherId: prepared.patcherId,
@@ -562,9 +563,11 @@ export class MaxforgePatchService {
 
   async applyDsl(request: ApplyDslRequest): Promise<ApplyDslResult> {
     this.assertMutationCompatible(request.patcherId, request.scope);
-    const totalStartedAt = performance.now();
-    const resolved = await this.resolveChange(request);
-    return this.executeResolvedChange(request.patcherId, resolved, totalStartedAt);
+    return this.withTargetMutation(request.patcherId, request.scope, async () => {
+      const totalStartedAt = performance.now();
+      const resolved = await this.resolveChange(request);
+      return this.executeResolvedChange(request.patcherId, resolved, totalStartedAt);
+    });
   }
 
   private async resolveChange(request: ApplyDslRequest): Promise<ResolvedChange> {
@@ -574,7 +577,7 @@ export class MaxforgePatchService {
     let intentGraph: PatchGraph;
     let manualChangesMerged = 0;
     if (request.manualChanges === "merge") {
-      const reconciliation = await this.reconcilePlan(
+      const reconciliation = await this.buildReconciliation(
         request,
         request.expectedStructureToken
       );
@@ -830,6 +833,14 @@ export class MaxforgePatchService {
     request: CompilePlanRequest,
     expectedStructureToken?: string
   ): Promise<ReconcilePlanResult> {
+    this.assertTargetIdle(request.patcherId, request.scope);
+    return this.buildReconciliation(request, expectedStructureToken);
+  }
+
+  private async buildReconciliation(
+    request: CompilePlanRequest,
+    expectedStructureToken?: string
+  ): Promise<ReconcilePlanResult> {
     const desired = this.patchAdapter.compile(request.desiredDsl, request.scope);
     const current = this.resolveCurrentGraph(request);
     this.assertLiveRevision(request.patcherId, request.scope, current.graph);
@@ -1042,6 +1053,7 @@ export class MaxforgePatchService {
     patcherId: string,
     scope: string
   ): Promise<ReviewLiveChangesResult> {
+    this.assertTargetIdle(patcherId, scope);
     const key = targetKey(patcherId, scope);
     this.resolvePendingApply(key);
     const snapshot = await this.transport.inspect(patcherId, scope);
@@ -1133,6 +1145,10 @@ export class MaxforgePatchService {
   async adoptLiveChanges(
     request: AdoptLiveChangesRequest
   ): Promise<AdoptLiveChangesResult> {
+    return this.withTargetMutation(request.patcherId, request.scope, () => this.adoptChanges(request));
+  }
+
+  private async adoptChanges(request: AdoptLiveChangesRequest): Promise<AdoptLiveChangesResult> {
     const { patcherId, scope, expectedStructureToken } = request;
     this.assertMutationCompatible(patcherId, scope);
     const key = targetKey(patcherId, scope);
@@ -1354,6 +1370,10 @@ export class MaxforgePatchService {
   async recoverPendingApply(
     request: RecoverPendingApplyRequest
   ): Promise<RecoverPendingApplyResult> {
+    return this.withTargetMutation(request.patcherId, request.scope, () => this.recoverApply(request));
+  }
+
+  private async recoverApply(request: RecoverPendingApplyRequest): Promise<RecoverPendingApplyResult> {
     this.assertMutationCompatible(request.patcherId, request.scope);
     const inspection = await this.inspectPendingApply(
       request.patcherId,
@@ -1604,6 +1624,23 @@ export class MaxforgePatchService {
       graph: createEmptyPatchGraph(request.scope),
       warnings: [],
     };
+  }
+
+  private assertTargetIdle(patcherId: string, scope: string): void {
+    if (this.activeMutations.has(targetKey(patcherId, scope))) {
+      throw new Error(`A change to Max patch "${patcherId}" scope "${scope}" is in progress`);
+    }
+  }
+
+  private async withTargetMutation<T>(patcherId: string, scope: string, run: () => Promise<T>): Promise<T> {
+    this.assertTargetIdle(patcherId, scope);
+    const key = targetKey(patcherId, scope);
+    this.activeMutations.add(key);
+    try {
+      return await run();
+    } finally {
+      this.activeMutations.delete(key);
+    }
   }
 
   private resolvePendingApply(key: string): void {

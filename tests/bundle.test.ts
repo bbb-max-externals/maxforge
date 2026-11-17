@@ -81,6 +81,13 @@ describe("portable catalog dependencies", () => {
     const catalog = await loadObjectCatalog({ configPath });
     const compiled = compile(parse("fx = vendor.fx").ast, catalog.database);
 
+    const labels = compile(parse([
+      'label = comment "vendor.fx is optional"',
+      'trigger = message "vendor.fx"',
+      'button = textbutton @text "vendor.fx"',
+    ].join("\n")).ast, catalog.database);
+    await expect(collectCatalogDependencies(labels.output!, catalog)).resolves.toEqual([]);
+
     await expect(collectCatalogDependencies(compiled.output!, catalog)).rejects.toThrow(
       'requires a path for external "vendor.fx"'
     );

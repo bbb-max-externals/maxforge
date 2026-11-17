@@ -3,7 +3,7 @@ import { AttrValue } from "../core/types.js";
 export interface SourceToken { text: string; start: number; end: number }
 
 /** Whitespace-delimited tokens with intact quotes and source offsets. */
-export function sourceTokens(text: string): SourceToken[] {
+export function sourceTokens(text: string, errors?: string[]): SourceToken[] {
   const tokens: SourceToken[] = [];
   let i = 0;
   while (i < text.length) {
@@ -16,6 +16,7 @@ export function sourceTokens(text: string): SourceToken[] {
       if (!quoted && /\s/.test(text[i])) break;
       i++;
     }
+    if (quoted) errors?.push("Unterminated quoted string");
     tokens.push({ text: text.slice(start, i), start, end: i });
   }
   return tokens;
@@ -101,9 +102,8 @@ export function parseAttributes(text: string): {
 } {
   const attrs: Record<string, AttrValue[]> = Object.create(null);
   const errors: string[] = [];
-  const tokenized = tokenizeWithQuotes(text);
-  const tokens = tokenized.tokens;
-  errors.push(...tokenized.errors);
+  const spans = sourceTokens(text, errors);
+  const tokens = spans.map((token) => token.text);
 
   const attrIndices: number[] = [];
   for (let i = 0; i < tokens.length; i++) {
@@ -117,13 +117,11 @@ export function parseAttributes(text: string): {
   }
 
   const firstAttr = attrIndices[0];
-  const objectTokens = tokens
-    .slice(0, firstAttr)
-    .map(unescapeLiteralAttributeToken);
+  const objectText = text.slice(0, spans[firstAttr].start).trimEnd();
 
-  for (const startIdx of attrIndices) {
+  for (const [attributeIndex, startIdx] of attrIndices.entries()) {
     const key = tokens[startIdx].substring(1);
-    const endIdx = attrIndices.find(idx => idx > startIdx) ?? tokens.length;
+    const endIdx = attrIndices[attributeIndex + 1] ?? tokens.length;
     if (!/^\w+$/.test(key)) {
       errors.push(`Invalid attribute name: ${tokens[startIdx]}`);
       continue;
@@ -149,7 +147,7 @@ export function parseAttributes(text: string): {
     attrs[key] = values;
   }
 
-  return { text: objectTokens.join(" "), attrs, errors };
+  return { text: unescapeLiteralAttributeTokens(objectText), attrs, errors };
 }
 
 function unescapeLiteralAttributeTokens(text: string): string {
@@ -185,36 +183,6 @@ function isEscaped(text: string, index: number): boolean {
     slashCount++;
   }
   return slashCount % 2 === 1;
-}
-
-function tokenizeWithQuotes(text: string): { tokens: string[]; errors: string[] } {
-  const tokens: string[] = [];
-  const errors: string[] = [];
-  let i = 0;
-  while (i < text.length) {
-    while (i < text.length && /\s/.test(text[i])) i++;
-    if (i >= text.length) break;
-    if (text[i] === '"') {
-      let j = i + 1;
-      while (j < text.length && text[j] !== '"') {
-        if (text[j] === "\\") j++;
-        j++;
-      }
-      if (j >= text.length) {
-        errors.push("Unterminated quoted string");
-        tokens.push(text.substring(i));
-        break;
-      }
-      tokens.push(text.substring(i, j + 1));
-      i = j + 1;
-    } else {
-      let j = i;
-      while (j < text.length && !/\s/.test(text[j])) j++;
-      tokens.push(text.substring(i, j));
-      i = j;
-    }
-  }
-  return { tokens, errors };
 }
 
 function stripQuotes(s: string): string {

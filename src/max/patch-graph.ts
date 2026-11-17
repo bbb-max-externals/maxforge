@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type { BoxJSON, PatcherJSON } from "../core/types.js";
 
+export const DEFAULT_TEXTBUTTON_LABEL = "Button";
+
 export type PatchValue =
   | string
   | number
@@ -261,9 +263,10 @@ function diffPatchGraphsInternal(
         value: entry.box.patchingRect,
       });
     }
+    const desiredText = entry.box.text ?? (entry.box.maxclass === "textbutton" ? DEFAULT_TEXTBUTTON_LABEL : undefined);
     if (
       entry.box.maxclass !== "newobj" &&
-      entry.box.text !== undefined &&
+      desiredText !== undefined &&
       currentEntry.box.text !== entry.box.text
     ) {
       sets.push({
@@ -272,7 +275,7 @@ function diffPatchGraphsInternal(
         id: entry.box.id,
         varName: entry.box.varName,
         attribute: "text",
-        value: entry.box.text,
+        value: desiredText,
       });
     }
     if (
@@ -565,7 +568,7 @@ function requiresBoxReplacement(left: PatchBox, right: PatchBox): boolean {
     outlettype: right.outlettype,
   })) return true;
   if (left.maxclass === "newobj" && left.text !== right.text) return true;
-  if (left.text !== undefined && right.text === undefined) return true;
+  if (left.text !== undefined && right.text === undefined && right.maxclass !== "textbutton") return true;
   if (left.comment !== undefined && right.comment === undefined) return true;
   const attributeNames = new Set([
     ...Object.keys(left.attributes),

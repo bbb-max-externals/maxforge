@@ -6,7 +6,7 @@ import {
 } from "../max/dsl-patch-graph.js";
 import type { PatchBox, PatchGraph } from "../max/patch-graph.js";
 import type { MaxforgeSnapshotBox } from "../max/patch-protocol.js";
-import { resolveSnapshotAttributes } from "../max/patch-snapshot.js";
+import { resolveSnapshotAttributes, resolveSnapshotText } from "../max/patch-snapshot.js";
 import type { PatchGraphAdapter } from "./patch-adapter.js";
 
 export class DslPatchAdapter implements PatchGraphAdapter {
@@ -81,14 +81,10 @@ export class DslPatchAdapter implements PatchGraphAdapter {
       numoutlets: resolved?.def.numoutlets ?? base.numoutlets,
       outlettype: resolved?.def.outlettype ?? base.outlettype,
       patchingRect: snapshot.patchingRect,
-      text: hasStructuralText(base.maxclass) ? snapshot.text : undefined,
+      text: resolveSnapshotText(base.maxclass, snapshot.text, base.text),
       // Max exposes an empty inlet/outlet assist comment even when none was set.
       comment: snapshot.comment === "" && base.comment === undefined ? undefined : snapshot.comment,
       attributes: resolveSnapshotAttributes(snapshot, base, baseline),
     };
   }
-}
-
-function hasStructuralText(maxclass: string): boolean {
-  return maxclass === "newobj" || maxclass === "message" || maxclass === "comment" || maxclass === "textbutton";
 }
