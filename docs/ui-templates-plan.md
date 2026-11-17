@@ -1,16 +1,18 @@
 # UI templates implementation plan
 
-Status: core design agreed; implementation authorized by Claude's conditional
-review after incorporating B1/B2 below (2026-11-17).
+Status: implementation complete and reviewed; native label updates verified.
+Integration checks are next. Acceptance scope clarified by the user on 2026-11-18.
 Branch: `codex/ui-templates`, base `c2521a4` (v0.6.3).
 
 ## Goal and acceptance gate
 
-Generate the supplied 16-channel audio tester entirely from DSL: reusable channel
-strips, independent patching/presentation placement, black theme, amber Solo and
-red Mute state colors, both button labels, and Presentation startup. The same
-strip definition must work for eight channels. Preserve the existing compiler,
-semantic IDs, and managed graph editing behavior.
+Implement reusable DSL templates, numeric constants, named box-attribute styles,
+independent patching/Presentation origins, supported root settings, and textbutton
+labels. Preserve the existing compiler, semantic IDs, and managed graph editing
+behavior. The audio tester is an integration example, not the product goal:
+complete visual or audio reproduction of that patch is not an acceptance gate.
+Its 8/16-channel variants demonstrate template reuse; unfinished sample-specific
+appearance, interaction or hardware-audio checks do not block this feature.
 
 The user requires a Claude planning review before further implementation, then
 a Claude implementation review after completion. Approximately 80% agreement
@@ -18,10 +20,9 @@ means agreement on the core contract below with **no unresolved correctness or
 data-loss blocker**; minor wording/ergonomic suggestions may remain explicitly
 deferred. It is not a numeric score that overrides a blocking finding.
 
-There is already an uncommitted prototype in this worktree. It is not approved,
-not fully tested, and is subject to replacement following review. Do not treat
-its existence as a reason to accept its design. Codex owns implementation;
-Claude reviews without editing the same files unless ownership is reassigned.
+The initial prototype was reviewed and replaced where needed; implementation
+and validation are recorded below. Codex owns implementation; Claude reviews
+without editing the same files unless ownership is reassigned.
 
 ## Proposed contract
 
@@ -82,7 +83,7 @@ Claude reviews without editing the same files unless ownership is reassigned.
    braces, nested subpatchers, numeric/string distinctions, and prototype-like
    keys need explicit regression coverage. Do not introduce code execution.
 
-Detailed draft syntax: [ui-templates.md](ui-templates.md).
+Implemented syntax: [ui-templates.md](ui-templates.md).
 
 ## Implementation sequence after agreement
 
