@@ -121,6 +121,20 @@ for i in 0..7 {
 ## Syntax reminders
 
 - Object: `name = object args... [@attr values...] [at(x, y[, width, height])]`
+- Reuse UI with numeric `const`, root `style name [extends parent] = @attrs`,
+  `template name(params) { ... }`, and `use name(args) as stable_alias at(x,y) present(x,y)`.
+  Apply styles with `using(a, b)` after object arguments, before attributes and
+  position. Explicit attributes win. Templates capture constants/styles when
+  defined; pass caller loop values explicitly. Instance IDs are `alias__local`.
+  Origins offset patching and Presentation coordinates independently, not size.
+- Escape a literal unquoted `using(...)` argument as `\using(...)`.
+- `patcher @openinpresentation 1 @bglocked 1 @bgcolor 0 0 0 1` configures file
+  output only. Remove this directive deliberately for plan/live sources.
+  Decompile can emit it for existing nondefault window settings.
+- `textbutton @text "Off" @texton "On"` retains both labels; do not patch JSON
+  or declare a custom catalog entry for this built-in class.
+- Decompile/adoption expands templates and styles into explicit DSL. Keep the
+  authored source separately before adopting live changes.
 - Escape a literal Max object-text attribute as `\@attr`; plain `@attr` is a maxforge box property.
 - Connection: `a -> b -> c`, or `src[1] -> dst[2]` for outlet/inlet indices.
 - Consecutive ports: `src[0..3] -> dst[2..5]` zip-connects inclusive ranges;
@@ -208,6 +222,7 @@ and the repository issue URL instead of claiming it was created.
 ## References in this repo
 
 - Full DSL spec: `docs/dsl-spec.md`
+- UI reuse and window settings: `docs/ui-templates.md`, `examples/audio-tester/`
 - Public examples: `examples/basic_synth.maxdsl`, `examples/voice_bank.maxdsl`
 - Native live-sync example: `examples/max_sync/`
 - HTTP-to-native-Max example: `examples/live/`

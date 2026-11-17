@@ -10,6 +10,28 @@ import dbData from "../data/objects.json" with { type: "json" };
 const db = dbData as unknown as ObjectDatabase;
 
 describe("thispatcher command generation", () => {
+  it("uses the actual scripting name for creation, nested targets, and connections", () => {
+    const result = compileDslToThispatcherCommands([
+      "sub = p inner @varname voice {", "  i = inlet", "}",
+      "b = button", "b -> sub",
+    ].join("\n"), db);
+    expect(result.commands?.[0].message.filter((atom) => atom === "@varname")).toHaveLength(1);
+    expect(result.commands?.[0].message).toContain("voice");
+    expect(result.commands?.[1].targetPath).toEqual(["voice"]);
+    expect(result.commands?.at(-1)?.message).toEqual(["script", "connect", "maxforge_obj_b", 0, "voice", 0]);
+  });
+
+  it("rejects colliding scripting names within one patcher", () => {
+    const result = compileDslToThispatcherCommands("a = button @varname maxforge_obj_b\nb = button", db);
+    expect(result.success).toBe(false);
+    expect(result.errors[0].message).toContain("maxforge_obj_b");
+  });
+
+  it("preserves a textbutton symbol and reports file-only root settings", () => {
+    const result = compileDslToThispatcherCommands('b = textbutton @text "01   ready"', db);
+    expect(result.commands?.[0].message.slice(-2)).toEqual(["@text", "01   ready"]);
+    expect(compileDslToThispatcherCommands("patcher @bglocked 1\nb = button", db).success).toBe(false);
+  });
   it("emits newobject and connect messages for a flat patcher", () => {
     const result = compileDslToThispatcherCommands(
       `

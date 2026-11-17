@@ -61,7 +61,7 @@ function objectNames(patcher: PatcherJSON["patcher"]): Set<string> {
   const names = new Set<string>();
   for (const { box } of patcher.boxes) {
     names.add(box.maxclass);
-    if (box.text) {
+    if (box.maxclass === "newobj" && box.text) {
       const name = box.text.trim().match(/^(\S+)/)?.[1];
       if (name) names.add(name);
     }

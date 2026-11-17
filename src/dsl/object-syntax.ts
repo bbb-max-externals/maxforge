@@ -1,11 +1,50 @@
 import { AttrValue } from "../core/types.js";
 
+export interface SourceToken { text: string; start: number; end: number }
+
+/** Whitespace-delimited tokens with intact quotes and source offsets. */
+export function sourceTokens(text: string, errors?: string[]): SourceToken[] {
+  const tokens: SourceToken[] = [];
+  let i = 0;
+  while (i < text.length) {
+    if (/\s/.test(text[i])) { i++; continue; }
+    const start = i;
+    let quoted = false;
+    while (i < text.length) {
+      if (text[i] === "\\" && i + 1 < text.length) { i += 2; continue; }
+      if (text[i] === '"') quoted = !quoted;
+      if (!quoted && /\s/.test(text[i])) break;
+      i++;
+    }
+    if (quoted) errors?.push("Unterminated quoted string");
+    tokens.push({ text: text.slice(start, i), start, end: i });
+  }
+  return tokens;
+}
+
+export function opensBlock(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("#") || !trimmed.endsWith("{")) return false;
+  let quoted = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] === "\\") { i++; continue; }
+    if (trimmed[i] === '"') quoted = !quoted;
+    if (i === trimmed.length - 1) return !quoted;
+  }
+  return false;
+}
+
+export function isOrdinaryStatement(text: string): boolean {
+  return /^\w+\s*=/.test(text.trimStart()) || /^\w+(?:\[[\d:.]+\])?\s*->/.test(text.trimStart());
+}
+
 export function parsePositionSuffix(text: string): {
   text: string;
   pos?: [number, number];
   size?: [number, number];
   errors: string[];
 } {
+  if (!sourceTokens(text).some((token) => token.text.startsWith("at("))) return { text, errors: [] };
   const number = "-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][+-]?\\d+)?";
   const candidate = text.match(/\s+at\(([^()]*)\)\s*$/);
   if (!candidate) {
@@ -61,11 +100,10 @@ export function parseAttributes(text: string): {
   attrs: Record<string, AttrValue[]>;
   errors: string[];
 } {
-  const attrs: Record<string, AttrValue[]> = {};
+  const attrs: Record<string, AttrValue[]> = Object.create(null);
   const errors: string[] = [];
-  const tokenized = tokenizeWithQuotes(text);
-  const tokens = tokenized.tokens;
-  errors.push(...tokenized.errors);
+  const spans = sourceTokens(text, errors);
+  const tokens = spans.map((token) => token.text);
 
   const attrIndices: number[] = [];
   for (let i = 0; i < tokens.length; i++) {
@@ -79,13 +117,11 @@ export function parseAttributes(text: string): {
   }
 
   const firstAttr = attrIndices[0];
-  const objectTokens = tokens
-    .slice(0, firstAttr)
-    .map(unescapeLiteralAttributeToken);
+  const objectText = text.slice(0, spans[firstAttr].start).trimEnd();
 
-  for (const startIdx of attrIndices) {
+  for (const [attributeIndex, startIdx] of attrIndices.entries()) {
     const key = tokens[startIdx].substring(1);
-    const endIdx = attrIndices.find(idx => idx > startIdx) ?? tokens.length;
+    const endIdx = attrIndices[attributeIndex + 1] ?? tokens.length;
     if (!/^\w+$/.test(key)) {
       errors.push(`Invalid attribute name: ${tokens[startIdx]}`);
       continue;
@@ -97,7 +133,8 @@ export function parseAttributes(text: string): {
     const values: AttrValue[] = [];
     for (let j = startIdx + 1; j < endIdx; j++) {
       const token = unescapeLiteralAttributeToken(tokens[j]);
-      if (/^-?\d+(\.\d+)?$/.test(token)) {
+      if (/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(token)) {
+        if (!Number.isFinite(Number(token))) errors.push(`Attribute @${key} requires finite numbers`);
         values.push(parseFloat(token));
       } else {
         values.push(stripQuotes(token));
@@ -110,7 +147,7 @@ export function parseAttributes(text: string): {
     attrs[key] = values;
   }
 
-  return { text: objectTokens.join(" "), attrs, errors };
+  return { text: unescapeLiteralAttributeTokens(objectText), attrs, errors };
 }
 
 function unescapeLiteralAttributeTokens(text: string): string {
@@ -125,11 +162,9 @@ function unescapeLiteralAttributeTokens(text: string): string {
     if (
       !inQuotes &&
       character === "\\" &&
-      text[i + 1] === "@" &&
+      (text[i + 1] === "@" || text.slice(i + 1).startsWith("using(")) &&
       (i === 0 || /\s/.test(text[i - 1]))
     ) {
-      result += "@";
-      i++;
       continue;
     }
     result += character;
@@ -139,7 +174,7 @@ function unescapeLiteralAttributeTokens(text: string): string {
 }
 
 function unescapeLiteralAttributeToken(token: string): string {
-  return token.startsWith("\\@") ? token.substring(1) : token;
+  return token.startsWith("\\@") || token.startsWith("\\using(") ? token.substring(1) : token;
 }
 
 function isEscaped(text: string, index: number): boolean {
@@ -148,36 +183,6 @@ function isEscaped(text: string, index: number): boolean {
     slashCount++;
   }
   return slashCount % 2 === 1;
-}
-
-function tokenizeWithQuotes(text: string): { tokens: string[]; errors: string[] } {
-  const tokens: string[] = [];
-  const errors: string[] = [];
-  let i = 0;
-  while (i < text.length) {
-    while (i < text.length && /\s/.test(text[i])) i++;
-    if (i >= text.length) break;
-    if (text[i] === '"') {
-      let j = i + 1;
-      while (j < text.length && text[j] !== '"') {
-        if (text[j] === "\\") j++;
-        j++;
-      }
-      if (j >= text.length) {
-        errors.push("Unterminated quoted string");
-        tokens.push(text.substring(i));
-        break;
-      }
-      tokens.push(text.substring(i, j + 1));
-      i = j + 1;
-    } else {
-      let j = i;
-      while (j < text.length && !/\s/.test(text[j])) j++;
-      tokens.push(text.substring(i, j));
-      i = j;
-    }
-  }
-  return { tokens, errors };
 }
 
 function stripQuotes(s: string): string {

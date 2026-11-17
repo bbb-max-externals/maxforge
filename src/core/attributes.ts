@@ -1,6 +1,7 @@
 import { AttrValue, BoxJSON } from "./types.js";
 
 export const STRUCTURAL_BOX_KEYS = new Set([
+  "__proto__",
   "id",
   "maxclass",
   "numinlets",
@@ -34,7 +35,7 @@ export function extractBoxAttrs(box: BoxJSON): {
   const serialized: string[] = [];
   const omitted: string[] = [];
   for (const [key, value] of Object.entries(box)) {
-    if (STRUCTURAL_BOX_KEYS.has(key)) continue;
+    if (STRUCTURAL_BOX_KEYS.has(key) && !(key === "text" && box.maxclass === "textbutton")) continue;
     if (value === undefined || value === null) continue;
     const formatted = formatAttr(key, value);
     if (formatted === null) omitted.push(key);
@@ -43,7 +44,7 @@ export function extractBoxAttrs(box: BoxJSON): {
   return { serialized, omitted };
 }
 
-function formatAttr(key: string, value: unknown): string | null {
+export function formatAttr(key: string, value: unknown): string | null {
   if (Array.isArray(value)) {
     if (value.length === 0 || value.some((part) => !isAttrValue(part))) return null;
     const parts = value.map(v => formatAttrValue(v));
@@ -63,7 +64,7 @@ function formatAttrValue(value: unknown): string {
   if (typeof value === "string") {
     // Attribute parsing distinguishes numeric atoms from symbol atoms. Keep
     // numeric-looking symbols quoted when Max normalizes abstraction args.
-    if (/^[\w.-]+$/.test(value) && !/^-?\d+(?:\.\d+)?$/.test(value)) {
+    if (/^[\w.-]+$/.test(value) && !/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value)) {
       return value;
     }
     return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;

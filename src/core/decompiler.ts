@@ -1,9 +1,12 @@
 import { PatcherJSON, BoxJSON, LineJSON } from "./types.js";
 import { extractBoxAttrs } from "./attributes.js";
+import { serializePatcherAttributes } from "./patcher-attributes.js";
 
 export interface DecompileOptions {
   readonly boxName?: (box: BoxJSON) => string | undefined;
   readonly includeBoxSize?: boolean;
+  /** Managed graphs and nested patchers do not carry root window settings. */
+  readonly omitPatcherAttributes?: boolean;
 }
 
 export function decompile(
@@ -19,10 +22,13 @@ export function decompile(
     const sizeStr = `${Math.round(p.rect[2])}x${Math.round(p.rect[3])}`;
     lines.push(
       `patch ${JSON.stringify(p.title ?? "Untitled")} | ` +
-      `${JSON.stringify(p.description)} | ${sizeStr}`
+      `${JSON.stringify(p.description ?? "")} | ${sizeStr}`
     );
     lines.push("");
   }
+
+  const settings = options.omitPatcherAttributes ? undefined : serializePatcherAttributes(p);
+  if (settings) lines.push(settings, "");
 
   const idToName = new Map<string, string>();
   const usedNames = new Set<string>();
@@ -227,7 +233,7 @@ function boxToDSL(
       const inner = decompile(
         { patcher: box.patcher },
         box.outlettype ?? [],
-        options
+        { ...options, omitPatcherAttributes: true }
       );
       const innerLines = inner.trim().split("\n");
       const body = innerLines.map((l) => "  " + l).join("\n");
@@ -293,7 +299,7 @@ function escapeLiteralAttributeTokens(text: string): string {
     }
     if (
       !inQuotes &&
-      character === "@" &&
+      (character === "@" || text.slice(i).startsWith("using(")) &&
       (i === 0 || /\s/.test(text[i - 1]))
     ) {
       result += "\\";

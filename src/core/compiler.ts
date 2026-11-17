@@ -13,6 +13,7 @@ import {
 import { lookupObject } from "./object-db.js";
 import { autoLayout } from "./layout.js";
 import { isReservedAttributeKey } from "./attributes.js";
+import { validatePatcherAttributes } from "./patcher-attributes.js";
 import { CompiledBox, CompiledLine } from "./compiled-model.js";
 import {
   compiledLineKey,
@@ -91,7 +92,7 @@ export function compile(
       return;
     }
 
-    if (!validateAttrs(stmt.attrs, stmt.line)) return;
+    if (!validateAttrs(stmt.attrs, stmt.line, result.maxclass)) return;
 
     const portSpec = parsePortObject(stmt.objectText);
     const isPortObject = portSpec !== null;
@@ -268,10 +269,12 @@ export function compile(
 
   function validateAttrs(
     attrs: Record<string, (string | number)[]> | undefined,
-    line: number
+    line: number,
+    maxclass?: string
   ): boolean {
     if (!attrs) return true;
     for (const key of Object.keys(attrs)) {
+      if (key === "text" && maxclass === "textbutton" && attrs[key].length === 1 && typeof attrs[key][0] === "string") continue;
       if (isReservedAttributeKey(key)) {
         errors.push({
           code: ErrorCode.RESERVED_ATTRIBUTE,
@@ -284,6 +287,10 @@ export function compile(
     return true;
   }
 
+  if (ast.patcherAttrs) {
+    const messages = isSubpatcher ? ["patcher settings are root-only"] : validatePatcherAttributes(ast.patcherAttrs);
+    errors.push(...messages.map((message) => ({ code: ErrorCode.RESERVED_ATTRIBUTE, message })));
+  }
   compileStatements(ast.statements, isSubpatcher);
 
   if (errors.length > 0) {
@@ -295,7 +302,8 @@ export function compile(
   const patcherJSON = buildPatcherJSON(
     ast.patchDecl,
     boxes,
-    lines
+    lines,
+    ast.patcherAttrs
   );
 
   return { success: true, errors: [], warnings, output: patcherJSON };

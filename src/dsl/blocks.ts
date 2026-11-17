@@ -1,3 +1,5 @@
+import { opensBlock } from "./object-syntax.js";
+
 export interface SourceLine {
   text: string;
   line: number;
@@ -11,7 +13,7 @@ export interface CollectedBlock {
 }
 
 export function toSourceLines(source: string): SourceLine[] {
-  return source.split("\n").map((text, index) => ({ text, line: index + 1 }));
+  return source.split(/\r?\n/).map((text, index) => ({ text, line: index + 1 }));
 }
 
 export function collectBlock(sourceLines: SourceLine[], startIndex: number): CollectedBlock {
@@ -28,7 +30,7 @@ export function collectBlock(sourceLines: SourceLine[], startIndex: number): Col
         return { lines, nextIndex: i, closed: true, closeLine: current.line };
       }
       lines.push(current);
-    } else if (trimmed.endsWith("{")) {
+    } else if (opensBlock(trimmed)) {
       depth++;
       lines.push(current);
     } else if (trimmed === "}") {

@@ -46,6 +46,7 @@ describe("snapshot", () => {
 // ---------------------------------------------------------------------------
 describe("examples", () => {
   const examples = [
+    "audio-tester/audio-tester.maxdsl",
     "basic_synth.maxdsl",
     "max_node_script/generated_patch.maxdsl",
     "max_node_script/maxforge_node_script_demo.maxdsl",
@@ -214,6 +215,15 @@ signal_path = p inner {
     expect(dsl).toContain("source_in = inlet");
     expect(dsl).toContain("processed_out = outlet");
     expect(dsl).toContain("source_in -> processed_out");
+  });
+
+  it("decompiles Max window metadata when the file omits its description", () => {
+    const patch = compile(parse("n = number").ast, db).output!;
+    Reflect.deleteProperty(patch.patcher, "description");
+    patch.patcher.rect = [0, 0, 800, 600];
+    const parsed = parse(decompile(patch));
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.ast.patchDecl?.size).toEqual([800, 600]);
   });
 
   it("does not mistake a default numeric Max box ID for a DSL name", () => {

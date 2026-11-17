@@ -41,6 +41,35 @@ function createService(
 }
 
 describe("MaxforgePatchService", () => {
+  it("preserves a pending apply while other requests target the same patch", async () => {
+    const transport = new FakeTransport();
+    transport.liveRevisions.set("patch-a:voices", null);
+    const store = new MemoryStateStore();
+    const service = createService(transport, store);
+    const request = { patcherId: "patch-a", scope: "voices", desiredDsl: "n = number" };
+    const originalApply = transport.apply.bind(transport);
+    let release!: () => void;
+    const response = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const sent = new Promise<void>((resolve) => { entered = resolve; });
+    transport.apply = async (patcherId, plan) => {
+      entered();
+      await response;
+      return originalApply(patcherId, plan);
+    };
+    const applying = service.applyDsl(request);
+    await sent;
+    try {
+      expect(() => service.compilePlan(request)).toThrow(/in progress/);
+      await expect(service.applyDsl(request)).rejects.toThrow(/in progress/);
+      expect(store.state?.pendingApplies.get("patch-a:voices")?.nextSource).toBe("n = number");
+      expect(service.compilePlan({ ...request, patcherId: "patch-b" }).plan.operations).toHaveLength(1);
+    } finally {
+      release();
+      await applying;
+    }
+    expect(store.state?.pendingApplies.size).toBe(0);
+  });
   it("turns retained observations into ordered evidence without claiming intent", async () => {
     const transport = new FakeTransport();
     const service = createService(transport);

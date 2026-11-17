@@ -30,6 +30,9 @@ try {
   for (const path of files) {
     if (path.startsWith("dist/mcp/") || path.startsWith("skills/maxforge-mcp/") || /dist\/live\/(broker|server)/.test(path)) throw new Error(`Stale legacy artifact: ${path}`);
   }
+  for (const path of ["docs/ui-templates.md", "examples/audio-tester/audio-tester.maxdsl", "examples/audio-tester/audio-tester.maxpat", "examples/audio-tester/README.md"]) {
+    if (!files.has(path)) throw new Error(`Missing UI template artifact: ${path}`);
+  }
   await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", join(packDirectory, packed.filename)], { cwd: temporary });
   const cli = join(temporary, "node_modules", ".bin", process.platform === "win32" ? "maxforge.cmd" : "maxforge");
   if (process.platform !== "win32" && ((await stat(cli)).mode & 0o111) === 0) throw new Error("CLI is not executable");
@@ -37,6 +40,9 @@ try {
   await writeFile(dsl, 'patch "Package smoke" | "Installed CLI" | 320x240\nbtn = button\nout = print smoke\nbtn -> out\n');
   const validation = await run(cli, ["validate", dsl], { cwd: temporary });
   if (validation.stdout.trim() !== "Validation passed." || validation.stderr) throw new Error("Installed CLI validation failed");
+  const audioTester = join(temporary, "node_modules", "maxforge", "examples", "audio-tester", "audio-tester.maxdsl");
+  await run(cli, ["validate", audioTester], { cwd: temporary });
+  await run(cli, ["compile", audioTester, "-o", join(temporary, "audio-tester.maxpat")], { cwd: temporary });
   await run(process.execPath, ["--input-type=module", "--eval", [
     'const live = await import("maxforge/live");',
     'for (const name of ["MaxforgeWebSocketBridge", "MaxforgePatchService", "createMaxforgeActions"]) {',

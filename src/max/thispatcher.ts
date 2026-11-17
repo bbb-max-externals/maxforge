@@ -4,6 +4,7 @@ import {
   BoxJSON,
   CompileError,
   CompileWarning,
+  ErrorCode,
   ObjectDatabase,
   PatcherJSON,
 } from "../core/types.js";
@@ -40,6 +41,7 @@ export interface ThispatcherCompileResult {
 
 const BASE_BOX_KEYS = new Set([
   "id",
+  "varname",
   "maxclass",
   "numinlets",
   "numoutlets",
@@ -49,6 +51,8 @@ const BASE_BOX_KEYS = new Set([
   "comment",
   "patcher",
 ]);
+
+class ScriptingNameError extends Error {}
 
 export function compileDslToThispatcherCommands(
   source: string,
@@ -60,6 +64,10 @@ export function compileDslToThispatcherCommands(
   if (parseErrors.length > 0) {
     return { success: false, errors: parseErrors, warnings: [] };
   }
+  if (ast.patcherAttrs) {
+    return { success: false, errors: [{ code: ErrorCode.RESERVED_ATTRIBUTE,
+      message: "thispatcher commands cannot apply root patcher settings; compile a .maxpat file" }], warnings: [] };
+  }
 
   const result = compile(ast, database, allowUnknown, options.asSubpatcher !== undefined);
   if (!result.success) {
@@ -70,12 +78,13 @@ export function compileDslToThispatcherCommands(
     };
   }
 
-  return {
-    success: true,
-    errors: [],
-    warnings: result.warnings,
-    commands: patcherToThispatcherCommands(result.output!, options),
-  };
+  try {
+    const commands = patcherToThispatcherCommands(result.output!, options);
+    return { success: true, errors: [], warnings: result.warnings, commands };
+  } catch (error) {
+    if (!(error instanceof ScriptingNameError)) throw error;
+    return { success: false, errors: [{ code: ErrorCode.SYNTAX_ERROR, message: error.message }], warnings: result.warnings };
+  }
 }
 
 export function patcherToThispatcherCommands(
@@ -128,9 +137,16 @@ function patcherToCommands(
   targetPath: string[]
 ): ThispatcherCommand[] {
   const idToVarName = new Map<string, string>();
+  const usedNames = new Set<string>();
   for (const wrapper of patcher.boxes) {
     const box = wrapper.box;
-    idToVarName.set(box.id, sanitizeVarName(`${varPrefix}${box.id}`));
+    if (box.varname !== undefined && typeof box.varname !== "string") {
+      throw new ScriptingNameError(`Box ${box.id} requires a string @varname`);
+    }
+    const name = box.varname || sanitizeVarName(`${varPrefix}${box.id}`);
+    if (usedNames.has(name)) throw new ScriptingNameError(`Duplicate scripting name: ${name}`);
+    usedNames.add(name);
+    idToVarName.set(box.id, name);
   }
 
   const commands: ThispatcherCommand[] = [];
@@ -190,7 +206,8 @@ function boxToNewObjectMessage(box: BoxJSON, varName: string): ThispatcherAtom[]
   }
 
   if (box.text !== undefined) {
-    message.push("@text", ...tokenizeMaxText(box.text));
+    if (box.maxclass === "textbutton") message.push("@text", box.text);
+    else message.push("@text", ...tokenizeMaxText(box.text));
   }
 
   return message;

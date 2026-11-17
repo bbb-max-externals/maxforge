@@ -1,4 +1,12 @@
 {
+  "textbutton": {
+    "maxclass": "textbutton",
+    "numinlets": 1,
+    "numoutlets": 3,
+    "outlettype": ["", "", "int"],
+    "defaultSize": [60, 24],
+    "category": "ui"
+  },
   "cycle~": {
     "maxclass": "newobj",
     "numinlets": 2,

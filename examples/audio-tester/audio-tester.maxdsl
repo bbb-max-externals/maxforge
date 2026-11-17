@@ -1,0 +1,120 @@
+patch "16ch outputs" | "White / pink / sine source and sixteen output trims" | 1200x600
+patcher @openinpresentation 1 @bglocked 1 @bgcolor 0.025 0.025 0.03 1 @editing_bgcolor 0.025 0.025 0.03 1 @locked_bgcolor 0.025 0.025 0.03 1
+
+# Set channels to 8 to reuse exactly the same strip template. Supported: 1..16.
+# DAC/solo aggregator remain 16-wide; unused channels are silent/zero.
+const channels = 16
+const strip_width = 61
+const strip_gap = 10
+style ui = @fontname "Arial" @fontsize 12 @presentation 1
+style label extends ui = @textcolor 0.65 0.67 0.70 1
+style control extends ui = @bgcolor 0.075 0.08 0.09 1 @textcolor 0.88 0.90 0.93 1
+style fader extends ui = @bgcolor 0.09 0.10 0.12 1 @knobcolor 0.73 0.78 0.83 1 @knobshape 5
+style switch extends ui = @rounded 4 @usebgoncolor 1 @usegradient 0 @bgcolor 0.105 0.11 0.12 1 @textcolor 0.55 0.57 0.60 1
+style solo extends switch = @bgoncolor 0.96 0.68 0.19 1 @textoncolor 0.06 0.06 0.07 1
+style mute extends switch = @bgoncolor 0.83 0.23 0.27 1 @textoncolor 1 1 1 1
+
+template strip(index, width) {
+  label = comment "${index}" using(label) @textjustification 1 @presentation_rect 0 0 ${width} 22 at(0, 0, 60, 22)
+  fader = slider using(fader) @floatoutput 1 @min -100 @size 100 @inputrangemode 1 @orientation 2 @presentation_rect 6 35 26 225 at(0, 40, 26, 180)
+  db = flonum using(control) @minimum -100 @maximum 0 @format 6 @presentation_rect 0 280 ${width} 24 at(0, 250, 61, 24)
+  fader_set = prepend set at(76, 250)
+  default = loadmess -100. at(76, 210)
+  linear = expr ($f1>-100.)*pow(10.,$f1/20.) at(0, 300, 290, 22)
+  ramp = pack 0. 20 at(0, 340)
+  signal = line~ 0. at(0, 380)
+  gain = *~ 0. at(0, 420)
+  solo = textbutton using(solo) @mode 1 @text "Solo" @texton "Solo" @presentation_rect 0 318 ${width} 25 at(0, 465, 61, 25)
+  mute = textbutton using(mute) @mode 1 @text "Mute" @texton "Mute" @presentation_rect 0 349 ${width} 25 at(76, 465, 61, 25)
+  switch_default = loadmess 0 at(156, 465)
+  solo_order = t i i at(0, 505)
+  gate_state = pak 0 0 0 at(0, 540)
+  gate_unpack = unpack i i i at(0, 575)
+  audible = expr (($i3==0)||($i1!=0))&&($i2==0) at(0, 610, 290, 22)
+  gate_ramp = pack 0. 20 at(0, 645)
+  gate_signal = line~ 0. at(121, 645)
+  gate = *~ 0. at(0, 690)
+  meter = meter~ using(ui) @presentation_rect 39 35 13 225 at(116, 420, 100, 15)
+
+  default -> db
+  fader -> db
+  db -> fader_set -> fader
+  db -> linear -> ramp -> signal -> gain[1]
+  gain -> gate -> meter
+  switch_default -> solo
+  switch_default -> mute
+  solo -> solo_order
+  solo_order[1] -> gate_state[0]
+  mute -> gate_state[1]
+  gate_state -> gate_unpack
+  gate_unpack[0..2] -> audible[0..2]
+  audible -> gate_ramp -> gate_signal -> gate[1]
+}
+
+source_label = comment "SOURCE" using(label) @presentation_rect 24 20 150 20 at(24, 20, 150, 20)
+source_menu = umenu using(control) @items "white" "," "pink" "," "sin" @presentation_rect 24 48 130 24 at(24, 48, 130, 24)
+source_default = loadmess 1 at(24, 90)
+source_index = + 1 at(24, 125)
+white_noise = noise~ at(160, 125)
+pink_noise = pink~ at(240, 125)
+sine_frequency_label = comment "SIN Hz" using(label) @presentation_rect 180 20 100 20 at(340, 20, 100, 20)
+sine_frequency = flonum using(control) @minimum 20 @maximum 20000 @presentation_rect 180 48 100 24 at(340, 48, 100, 24)
+sine_default = loadmess 1000 at(340, 90)
+sine_frequency_ramp = pack 0. 20 at(340, 125)
+sine_frequency_signal = line~ 1000 at(340, 160)
+sine_oscillator = cycle~ 1000 at(340, 195)
+source_select = selector~ 3 2 at(160, 240)
+source_gain_label = comment "SOURCE dB" using(label) @presentation_rect 310 20 120 20 at(500, 20, 120, 20)
+source_gain_db = flonum using(control) @minimum -100 @maximum 0 @presentation_rect 310 48 100 24 at(500, 48, 100, 24)
+source_gain_default = loadmess -20. at(500, 90)
+source_gain_linear = expr ($f1>-100.)*pow(10.,$f1/20.) at(500, 125, 290, 22)
+source_gain_ramp = pack 0. 20 at(500, 160)
+source_gain_signal = line~ 0. at(500, 195)
+source_level = *~ 0. at(160, 285)
+output_label = comment "OUTPUT" using(label) @presentation_rect 450 20 100 20 at(830, 20, 100, 20)
+output_enabled = toggle using(ui) @presentation_rect 450 48 24 24 at(830, 48, 24, 24)
+output_default = loadmess 0 at(830, 90)
+output_ramp = pack 0. 20 at(830, 125)
+output_signal = line~ 0. at(830, 160)
+output_bus = *~ 0. at(160, 330)
+source_meter = meter~ using(ui) @presentation_rect 500 50 150 18 at(250, 330, 120, 18)
+audio_settings = message "Audio settings" using(control) @presentation_rect 690 48 115 24 at(960, 48, 115, 24)
+audio_settings_bang = t b at(960, 90)
+audio_settings_message = message "; dsp status" at(960, 125, 100, 22)
+dsp_label = comment "DSP" using(label) @presentation_rect 840 20 60 20 at(1100, 20, 60, 20)
+dsp_switch = ezdac~ using(ui) @presentation_rect 840 46 28 28 at(1100, 48, 28, 28)
+all_mute_button = message "All -inf" using(control) @presentation_rect 920 48 90 24 at(1180, 48, 90, 24)
+all_mute_bang = t b at(1180, 90)
+all_mute_value = message "-100." at(1180, 125)
+all_unity_button = message "All 0 dB" using(control) @presentation_rect 1030 48 90 24 at(1300, 48, 90, 24)
+all_unity_bang = t b at(1300, 90)
+all_unity_value = message "0." at(1300, 125)
+output_channels_label = comment "OUTPUT TRIM / dB" using(label) @presentation_rect 24 110 250 20 at(24, 390, 250, 20)
+range_label = comment "-100 = -inf    /    Solo: selected channels only    /    Mute takes priority" using(label) @presentation_rect 24 540 900 20 at(24, 430, 700, 20)
+solo_states = pak 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 at(1480, 48, 330, 22)
+solo_sum = zl sum at(1480, 90)
+any_solo = > 0 at(1480, 125)
+output_dac = dac~ 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 at(24, 1250, 1100, 22)
+
+solo_states -> solo_sum -> any_solo
+source_default -> source_menu -> source_index -> source_select
+white_noise -> source_select[1]
+pink_noise -> source_select[2]
+sine_default -> sine_frequency -> sine_frequency_ramp -> sine_frequency_signal -> sine_oscillator -> source_select[3]
+source_gain_default -> source_gain_db -> source_gain_linear -> source_gain_ramp -> source_gain_signal -> source_level[1]
+source_select -> source_level -> output_bus
+output_default -> output_enabled -> output_ramp -> output_signal -> output_bus[1]
+output_bus -> source_meter
+audio_settings -> audio_settings_bang -> audio_settings_message
+all_mute_button -> all_mute_bang -> all_mute_value
+all_unity_button -> all_unity_bang -> all_unity_value
+
+for i in 1..channels {
+  use strip(i, strip_width) as channel_${i} at(24+(i-1)*320, 500) present(24+(i-1)*(strip_width+strip_gap), 145)
+  output_bus -> channel_${i}__gain
+  channel_${i}__gate -> output_dac[${i-1}]
+  channel_${i}__solo_order[0] -> solo_states[${i-1}]
+  any_solo -> channel_${i}__gate_state[2]
+  all_mute_value -> channel_${i}__db
+  all_unity_value -> channel_${i}__db
+}
