@@ -31,6 +31,7 @@ describe("installed object database paths", () => {
     for (const file of [
       "package.json",
       "dist/core/object-db.js",
+      "dist/core/box-text.js",
       "dist/core/types.js",
       "data/objects.json",
     ]) {
