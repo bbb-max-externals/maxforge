@@ -1,3 +1,4 @@
+import { formatBoxText } from "./box-text.js";
 import { PatcherJSON, BoxJSON, LineJSON } from "./types.js";
 import { extractBoxAttrs } from "./attributes.js";
 import { serializePatcherAttributes } from "./patcher-attributes.js";
@@ -21,7 +22,7 @@ export function decompile(
   if (p.title || p.description || p.rect[2] !== 640 || p.rect[3] !== 480) {
     const sizeStr = `${Math.round(p.rect[2])}x${Math.round(p.rect[3])}`;
     lines.push(
-      `patch ${JSON.stringify(p.title ?? "Untitled")} | ` +
+      `patch ${JSON.stringify(p.title ?? null)} | ` +
       `${JSON.stringify(p.description ?? "")} | ${sizeStr}`
     );
     lines.push("");
@@ -203,14 +204,14 @@ function boxToDSL(
   if (box.maxclass === "comment") {
     const text = box.text || "";
     return withOmissionNotice(
-      `${name} = comment "${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"${attrSuffix}${posSuffix}`
+      `${name} = comment ${formatBoxText(text)}${attrSuffix}${posSuffix}`
     );
   }
 
   if (box.maxclass === "message") {
     const text = box.text || "";
     return withOmissionNotice(
-      `${name} = message "${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"${attrSuffix}${posSuffix}`
+      `${name} = message ${formatBoxText(text)}${attrSuffix}${posSuffix}`
     );
   }
 
@@ -219,7 +220,7 @@ function boxToDSL(
     const comment = (box.comment as string) || "";
     if (comment) {
       return withOmissionNotice(
-        `${name} = ${box.maxclass}${signalSuffix} "${comment.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"${attrSuffix}${posSuffix}`
+        `${name} = ${box.maxclass}${signalSuffix} ${formatBoxText(comment)}${attrSuffix}${posSuffix}`
       );
     }
     return withOmissionNotice(

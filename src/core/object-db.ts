@@ -1,3 +1,4 @@
+import { parseBoxText } from "./box-text.js";
 import {
   ArgumentPortCountRule,
   MAX_DECLARATIVE_PORT_COUNT,
@@ -89,10 +90,7 @@ function extractFirstToken(text: string): string {
 
 export function extractQuotedContent(text: string): string {
   const afterType = text.replace(/^\S+\s*/, "").trim();
-  if (afterType.startsWith('"') && afterType.endsWith('"')) {
-    return afterType.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-  }
-  return afterType;
+  return parseBoxText(afterType);
 }
 
 function extractArgs(objectText: string): string[] {
