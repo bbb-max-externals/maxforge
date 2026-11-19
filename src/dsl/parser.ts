@@ -186,6 +186,15 @@ function isIdentifier(value: string): boolean {
 }
 
 function validateSpecialObjectText(text: string): string | null {
+  const jsonText = text.match(/^(?:comment|message|(?:inlet|outlet)(?:\s+signal)?)\s+json(".*)$/);
+  if (jsonText) {
+    try {
+      JSON.parse(jsonText[1]);
+      return null;
+    } catch {
+      return "Invalid JSON-quoted box text";
+    }
+  }
   const type = text.match(/^(comment|message)(?:\s|$)/)?.[1];
   if (!type) return null;
   if (/^(?:comment|message)\s+"(?:\\.|[^"\\])*"$/.test(text)) return null;
@@ -195,23 +204,23 @@ function validateSpecialObjectText(text: string): string | null {
 function parsePatchDecl(line: string): PatchDecl | null {
   const quotedString = '"(?:\\\\(?:["\\\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\\\])*"';
   const match = line.match(new RegExp(
-    `^patch\\s+(${quotedString})` +
+    `^patch\\s+(${quotedString}|null)` +
     `(?:\\s*\\|\\s*(${quotedString})?)?` +
     `(?:\\s*\\|\\s*(\\d+)x(\\d+))?$`
   ));
   if (!match) return null;
 
-  let name: string;
+  let name: string | null;
   let description: string | undefined;
   try {
-    name = JSON.parse(match[1]) as string;
+    name = JSON.parse(match[1]) as string | null;
     description = match[2] ? JSON.parse(match[2]) as string : undefined;
   } catch {
     return null;
   }
-  if (name.length === 0) return null;
+  if (name === "") return null;
 
-  const result: PatchDecl = { name };
+  const result: PatchDecl = name === null ? {} : { name };
   if (description !== undefined) result.description = description;
   if (match[3] !== undefined && match[4] !== undefined) {
     const width = Number(match[3]);

@@ -1610,3 +1610,35 @@ fx = p inner @color 0 1 0 1 at(200, 300) {
     expect(box.color).toEqual([0, 1, 0, 1]);
   });
 });
+
+describe("box text and untitled window round trips", () => {
+  it("preserves control characters and literal escape sequences in all four text positions", () => {
+    const text = 'first\nsecond\t"quoted"\r\\n';
+    const source = ["comment", "message", "inlet", "outlet"].map((kind, index) =>
+      `box${index} = ${kind} json${JSON.stringify(text)}`
+    ).join("\n");
+    const first = parse(`group = p labels {\n${source}\n}`);
+    expect(first.errors).toEqual([]);
+    const original = compile(first.ast, db).output!;
+    const second = parse(decompile(original));
+    expect(second.errors).toEqual([]);
+    const rebuilt = compile(second.ast, db).output!;
+    for (const patch of [original, rebuilt]) {
+      const boxes = patch.patcher.boxes[0].box.patcher!.boxes;
+      expect(boxes.map(({box}) => box.text ?? box.comment)).toEqual(Array(4).fill(text));
+    }
+    const legacy = compile(parse(String.raw`a = message "first\nsecond"`).ast, db);
+    expect(legacy.output!.patcher.boxes[0].box.text).toBe(String.raw`first\nsecond`);
+  });
+
+  it("preserves a custom size without creating a title", () => {
+    const original = compile(parse('patch null | "" | 800x600').ast, db).output!;
+    const second = parse(decompile(original));
+    expect(second.errors).toEqual([]);
+    const rebuilt = compile(second.ast, db).output!;
+    for (const patch of [original, rebuilt]) {
+      expect(patch.patcher).not.toHaveProperty("title");
+      expect(patch.patcher.rect.slice(2)).toEqual([800, 600]);
+    }
+  });
+});

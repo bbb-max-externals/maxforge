@@ -29,7 +29,7 @@ statement         ::= patch_decl
 comment           ::= '#' , { non_newline } , NEWLINE ;
 blank_line        ::= NEWLINE ;
 
-patch_decl        ::= 'patch' , STRING , { '|' , patch_param } ;
+patch_decl        ::= 'patch' , (STRING | 'null') , { '|' , patch_param } ;
 patch_param       ::= STRING | size ;
 size              ::= INTEGER , 'x' , INTEGER ;
 
@@ -117,7 +117,9 @@ STRING ::= '"' ... '"'
 - Delimited by double quotes.
 - Escaped quotes are recognized while tokenizing quoted values.
 - `comment` and `message` text unescape `\"` and `\\`.
-- `\n` is not interpreted as a newline escape.
+- In plain quoted box text, `\n` remains a literal backslash and n. Comments,
+  messages, and inlet/outlet labels also accept `json"first\nsecond"` for JSON
+  string escapes. The decompiler uses this form for embedded control characters.
 - Used in: `patch` declaration, `comment` text, `message` text, and quoted attribute values.
 - `comment` and `message` require exactly one quoted text operand; unquoted or
   trailing text is rejected instead of being guessed.
@@ -291,6 +293,7 @@ patch "Patch Name" | "Description text" | 800x600
   window title from the saved filename.
 - Recommended position is before any object definitions or connections.
 - Exactly zero or one declaration is allowed; duplicates are syntax errors.
+- Use `patch null | "" | 800x600` to set the window size while leaving the title absent.
 - Title and description use JSON string escaping, so quoted `|`, `\"`, `\\`,
   and escapes such as `\n` do not terminate the declaration. Size must contain
   positive safe integers in a valid `WIDTHxHEIGHT` token.

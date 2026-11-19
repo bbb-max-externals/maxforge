@@ -1,3 +1,4 @@
+import { parseBoxText } from "./box-text.js";
 import { ObjectDefStmt, Statement } from "./types.js";
 
 export const INLET_OBJECT_TYPES = ["inlet"] as const;
@@ -54,8 +55,5 @@ export function parsePortObject(objectText: string): PortObjectSpec | null {
 
 function parseComment(text: string): string | undefined {
   if (text === "") return undefined;
-  if (text.startsWith('"') && text.endsWith('"')) {
-    return text.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-  }
-  return text;
+  return parseBoxText(text);
 }

@@ -137,7 +137,7 @@ export interface ASTNode {
 }
 
 export interface PatchDecl {
-  name: string;
+  name?: string;
   description?: string;
   size?: [number, number];
 }
